@@ -193,10 +193,394 @@ test('built-in song notes match their strings and frets', () => {
   }
 });
 
+
+const { SteadyPitch, NoteAttempt, PracticeSession } = require('./practice.js');
+
+function simulateAudio(makeBuffer, duration = 900, expected = 110) {
+  const detector = new PitchDetector();
+  const gate = new SteadyPitch();
+  const attempt = new NoteAttempt();
+  let soundPassed = false;
+  let outcome = null;
+  detector.analyze(silence(), -20);
+  for (let t = 0; t <= duration; t += 20) {
+    const frame = detector.analyze(makeBuffer(t), t);
+    soundPassed ||= gate.update(frame, t);
+    outcome ||= attempt.update(frame, t, expected, detector.noiseFloor);
+  }
+  return { soundPassed, outcome };
+}
+
+test('broadband noise cannot pass sound check or play a note', () => {
+  const result = simulateAudio(() => guitarTone(110, 0, 0.2));
+  assert.equal(result.soundPassed, false);
+  assert.notEqual(result.outcome?.type, 'right');
+});
+
+test('voice-like gliding pitch cannot pass sound check or play a note', () => {
+  const result = simulateAudio(t => guitarTone(110 * 2 ** (t / 1000), 0.3, 0.01, t * 44.1));
+  assert.equal(result.soundPassed, false);
+  assert.notEqual(result.outcome?.type, 'right');
+});
+
+test('short tonal bursts cannot pass sound check or play a note', () => {
+  const result = simulateAudio(t => t % 240 < 100 ? guitarTone(110) : silence());
+  assert.equal(result.soundPassed, false);
+  assert.notEqual(result.outcome?.type, 'right');
+});
+
+test('natural slow guitar decay passes and is never marked muted', () => {
+  const result = simulateAudio(t => guitarTone(110, 0.35 * Math.exp(-t / 1200), 0.001, t * 44.1));
+  assert.equal(result.soundPassed, true);
+  assert.equal(result.outcome.type, 'right');
+});
+
+test('tone dying within 100 ms is marked muted', () => {
+  const result = simulateAudio(t => t < 80 ? guitarTone(110) : silence());
+  assert.equal(result.soundPassed, false);
+  assert.equal(result.outcome.type, 'muted');
+});
+
+test('retry clears all attack and decay state', () => {
+  const attempt = new NoteAttempt();
+  attempt.update({ frequency: 110, clarity: 1, rms: 0.2, onset: true }, 0, 110);
+  attempt.update({ frequency: null, clarity: 0, rms: 0 }, 80, 110);
+  assert.equal(attempt.update({ frequency: null, clarity: 0, rms: 0 }, 120, 110).type, 'muted');
+  attempt.reset();
+  let outcome;
+  for (let t = 0; t <= 340; t += 20) outcome = attempt.update({ frequency: 110, clarity: 1, rms: 0.1, onset: t === 0 }, t, 110) || outcome;
+  assert.equal(outcome.type, 'right');
+});
+
+test('wrong note and wrong octave cannot count as right', () => {
+  for (const f of [130.81, 220]) {
+    const result = simulateAudio(t => guitarTone(f, 0.3, 0, t * 44.1));
+    assert.equal(result.outcome.type, 'wrong');
+  }
+});
+
+test('skip advances past repeated cards to a different target', () => {
+  const session = new PracticeSession([{string: 1, fret: 0}, {string: 1, fret: 0}, {string: 2, fret: 0}]);
+  session.skip();
+  assert.equal(session.index, 2);
+  assert.equal(session.state, 'playing');
+});
+
+test('phrase and intro stay at result until next is explicitly called', () => {
+  for (const kind of ['phrase', 'intro', 'exercise']) {
+    const session = new PracticeSession([{string: 1, fret: 0}, {string: 1, fret: 1}]);
+    session.record(false); session.record(true);
+    assert.equal(session.index, 0, kind);
+    assert.equal(session.state, 'feedback');
+    session.next(); session.record(true);
+    assert.equal(session.state, 'result');
+    assert.equal(session.index, 1);
+    assert.equal(session.right, 2);
+    assert.equal(session.attempts, 3);
+    session.record(true);
+    assert.equal(session.state, 'result');
+    session.next();
+    assert.equal(session.state, 'finished');
+  }
+});
+
+test('tuner requires half a second and resets after sustained pitch loss', () => {
+  const gate = new SteadyPitch(500, 10);
+  for (let t = 0; t < 500; t += 20) assert.equal(gate.update({frequency:110,clarity:1}, t), false);
+  assert.equal(gate.update({frequency:110,clarity:1}, 500), true);
+  assert.equal(gate.update({frequency:null,clarity:0}, 520), false);
+  assert.equal(gate.update({frequency:null,clarity:0}, 620), false);
+  assert.equal(gate.update({frequency:110,clarity:1}, 640), false);
+});
+
+
+test('retry after success resets the card without inflating the score', () => {
+  const session = new PracticeSession([{string:1,fret:0}]);
+  session.record(true);
+  session.retry();
+  assert.equal(session.state, 'playing');
+  assert.equal(session.right, 0);
+  session.record(true);
+  assert.equal(session.right, 1);
+  assert.equal(session.attempts, 2);
+});
+
+test('held tone cannot trigger a second card without a fresh pick', () => {
+  const detector = new PitchDetector();
+  let attempt = new NoteAttempt();
+  let first;
+  for (let t = 0; t <= 400; t += 20) first ||= attempt.update(detector.analyze(guitarTone(110, 0.3, 0, t * 44.1), t), t, 110);
+  assert.equal(first.type, 'right');
+  attempt = new NoteAttempt();
+  for (let t = 420; t <= 1000; t += 20) assert.equal(attempt.update(detector.analyze(guitarTone(110, 0.3, 0, t * 44.1), t), t, 110), null);
+});
+
+test('replaying completed lessons preserves saved progress', () => {
+  const { LearningProgress } = require('./learning-path.js');
+  const saved = new Map();
+  global.localStorage = { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value) };
+  const progress = new LearningProgress('test');
+  progress.complete('open-strings');
+  const replay = new PracticeSession([{string:1,fret:0}]);
+  replay.skip(); replay.next();
+  assert.deepEqual(new LearningProgress('test').completed, ['open-strings']);
+  progress.complete('open-strings');
+  assert.deepEqual(new LearningProgress('test').completed, ['open-strings']);
+  delete global.localStorage;
+});
+
+
+function appHarness() {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      id, style: {}, dataset: {}, children: [], disabled: false, value: '70',
+      classList: { values: new Set(), add(name) { this.values.add(name); }, remove(name) { this.values.delete(name); }, toggle(name, force) { if (force) this.values.add(name); else this.values.delete(name); }, contains(name) { return this.values.has(name); } },
+      addEventListener() {}, appendChild(child) { this.children.push(child); },
+      append(child) { this.children.push(child); }, replaceChildren() { this.children = []; },
+      querySelector() { return null; }, scrollIntoView() {}, after() {}
+    });
+    return elements.get(id);
+  };
+  let now = 0;
+  let scheduled;
+  const timers = new Map();
+  let timerId = 0;
+  const storage = new Map();
+  const context = vm.createContext({
+    console, Float32Array,
+    setTimeout: fn => { timers.set(++timerId, fn); return timerId; },
+    clearTimeout: id => timers.delete(id),
+    performance: { now: () => now },
+    localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
+    document: { getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol()), createTextNode: text => ({textContent:text}), addEventListener() {} },
+    window: { scrollTo() {} }, navigator: {},
+    requestAnimationFrame: fn => { scheduled = fn; return 1; },
+    cancelAnimationFrame: () => { scheduled = null; }
+  });
+  for (const file of ['pitch-detection.js', 'tab-parser.js', 'songs.js', 'learning-path.js', 'practice.js', 'app.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+  const app = context.window.__guitarApp;
+  return { app, element, context, timers,
+    tick() { now += 20; const fn = scheduled; scheduled = null; assert.ok(fn, 'input loop scheduled'); fn(); },
+    flushTimer() { const [id, fn] = timers.entries().next().value || []; assert.ok(fn, 'advance scheduled'); timers.delete(id); fn(); }
+  };
+}
+
+test('app intro keeps feedback visible and opens result only on Next', () => {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      id, style: {}, dataset: {}, children: [], disabled: false, value: '70',
+      classList: { add() {}, remove() {}, toggle() {} },
+      addEventListener() {}, appendChild(child) { this.children.push(child); },
+      append(child) { this.children.push(child); }, replaceChildren() { this.children = []; },
+      querySelector() { return null; }, scrollIntoView() {}, after() {}
+    });
+    return elements.get(id);
+  };
+  let now = 0;
+  let scheduled;
+  const storage = new Map();
+  const context = vm.createContext({
+    console, Float32Array, setTimeout, clearTimeout,
+    performance: { now: () => now },
+    localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
+    document: { getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol()), createTextNode: text => ({textContent:text}), addEventListener() {} },
+    window: { scrollTo() {} }, navigator: {},
+    requestAnimationFrame: fn => { scheduled = fn; return 1; },
+    cancelAnimationFrame: () => { scheduled = null; }
+  });
+  for (const file of ['pitch-detection.js', 'tab-parser.js', 'songs.js', 'learning-path.js', 'practice.js', 'app.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+  const app = context.window.__guitarApp;
+  app.analyser = {};
+  app.firstRunStep = 4;
+  let onset = true;
+  app.readAnalysis = () => {
+    const target = app.session.cards[app.session.index];
+    const note = app.noteDetector.noteAt(target.string, target.fret);
+    const frame = {frequency:app.noteDetector.frequencyFor(note.note, note.octave), clarity:1, rms:0.1, onset};
+    onset = false;
+    return frame;
+  };
+  app.renderFirstRun();
+  for (let card = 0; card < 3; card++) {
+    if (card) { onset = true; now += 20; const tick = scheduled; scheduled = null; tick(); }
+    while (app.session.state === 'playing') { now += 20; const tick = scheduled; scheduled = null; assert.ok(tick); tick(); }
+    assert.equal(element('first-feedback').textContent, 'Right!');
+    assert.equal(app.currentScreen, 'onboarding');
+    assert.equal(app.session.index, card);
+    app.nextFirstRun();
+  }
+  assert.equal(app.currentScreen, 'achievement');
+  assert.equal(app.session.state, 'result');
+  assert.match(element('achievement-body').textContent, /3\/3 notes right/);
+  assert.equal(app.firstRunStep, 4);
+  assert.equal(scheduled, null);
+});
+
+
+test('confidence window tolerates weak frames but requires 75 percent clarity', () => {
+  const gate = new SteadyPitch();
+  const attempt = new NoteAttempt();
+  let passed = false, outcome;
+  for (let t = 0; t <= 400; t += 20) {
+    const clear = (t / 20) % 5 !== 2;
+    const frame = {frequency:clear ? 110 : null, clarity:clear ? 0.85 : 0.3, rms:0.1, onset:t === 0};
+    passed ||= gate.update(frame, t);
+    outcome ||= attempt.update(frame, t, 110);
+  }
+  assert.equal(passed, true);
+  assert.equal(outcome.type, 'right');
+  const weak = new SteadyPitch();
+  for (let t = 0; t <= 800; t += 20) assert.equal(weak.update({frequency:110,clarity:t % 40 ? 0.4 : 0.85}, t), false);
+});
+
+test('score uses filtered pitch despite raw harmonic glitches', () => {
+  const attempt = new NoteAttempt();
+  let result;
+  for (let t = 0; t <= 320; t += 20) result ||= attempt.update({frequency:110,rawFrequency:220,clarity:0.85,rms:0.1,onset:t === 0}, t, 110);
+  assert.equal(result.type, 'right');
+  assert.equal(result.frequency, 110);
+});
+
+test('scoring falls back to raw pitch only when filtered pitch is absent', () => {
+  const attempt = new NoteAttempt();
+  let result;
+  for (let t = 0; t <= 320; t += 20) result ||= attempt.update({frequency:null,rawFrequency:110,clarity:0.85,rms:0.1,onset:t === 0}, t, 110);
+  assert.equal(result.type, 'right');
+});
+
+test('brief filtered octave glitches do not become wrong attempts', () => {
+  const attempt = new NoteAttempt();
+  let result;
+  for (let t = 0; t <= 340; t += 20) {
+    const frame = {frequency:t === 300 ? 220 : 110, clarity:0.9,rms:0.1,onset:t === 0};
+    const outcome = attempt.update(frame, t, 110);
+    if (t === 300) assert.equal(outcome, null);
+    result ||= outcome;
+  }
+  assert.equal(result.type, 'right');
+});
+
+test('sustained wrong pitch needs a full confidence window', () => {
+  const attempt = new NoteAttempt();
+  for (let t = 0; t < 300; t += 20) assert.equal(attempt.update({frequency:130.81, clarity:0.85,rms:0.1,onset:t === 0}, t, 110), null);
+  assert.equal(attempt.update({frequency:130.81,clarity:0.85,rms:0.1}, 300, 110).type, 'wrong');
+});
+
+test('muted disappearance starting at 130 ms confirms beyond the boundary', () => {
+  const attempt = new NoteAttempt();
+  for (let t = 0; t <= 120; t += 10) assert.equal(attempt.update({frequency:110,clarity:1,rms:0.1,onset:t === 0}, t, 110), null);
+  assert.equal(attempt.update({frequency:null,clarity:0,rms:0}, 130, 110), null);
+  assert.equal(attempt.update({frequency:null,clarity:0,rms:0}, 150, 110), null);
+  assert.equal(attempt.update({frequency:null,clarity:0,rms:0}, 170, 110).type, 'muted');
+});
+
+test('notes ringing beyond 150 ms are never marked muted', () => {
+  for (const cutoff of [160, 200, 500]) {
+    const result = simulateAudio(t => t < cutoff ? guitarTone(110) : silence());
+    assert.notEqual(result.outcome?.type, 'muted');
+  }
+});
+
+test('first-run result hides Home and Home without a profile safely selects a player', () => {
+  const {app, element} = appHarness();
+  app.practiceKind = 'intro';
+  app.session = {right:3,cards:[1,2,3],attempts:3};
+  app.practiceResult();
+  assert.equal(element('achievement-home').classList.contains('hidden'), true);
+  assert.doesNotThrow(() => app.goHome());
+  assert.equal(app.currentScreen, 'profile');
+  assert.doesNotThrow(() => app.renderHome());
+});
+
+test('single-card Skip moves to another exercise and only the last Skip shows result', () => {
+  const {app, element} = appHarness();
+  app.chooseProfile('QA');
+  app.analyser = {};
+  app.readAnalysis = () => ({frequency:null,clarity:0,rms:0});
+  app.startLesson();
+  assert.equal(app.session.cards[0].string, 1);
+  app.advanceLessonCard();
+  assert.equal(app.currentScreen, 'lesson');
+  assert.equal(app.exerciseIndex, 1);
+  assert.equal(app.session.cards[0].string, 2);
+  app.advanceLessonCard();
+  assert.equal(app.currentScreen, 'lesson');
+  assert.equal(app.session.cards[0].string, 3);
+  app.advanceLessonCard();
+  assert.equal(app.currentScreen, 'achievement');
+  assert.equal(app.progress.completed.length, 0);
+  assert.equal(element('achievement-title').textContent, 'Lesson result');
+  assert.match(element('achievement-body').textContent, /0\/3 notes right/);
+});
+
+test('songs auto-advance inside phrases, pause safely, and stop at phrase result', () => {
+  const h = appHarness();
+  const {app, element, timers} = h;
+  app.analyser = {};
+  app.song = {title:'QA',notes:[{string:1,fret:0,note:'E',octave:4,duration:4},{string:1,fret:1,note:'F',octave:4,duration:4}]};
+  app.songRange = [0,2];
+  app.songResults = {};
+  app.show('play');
+  let onset = true;
+  app.readAnalysis = () => {
+    const target = app.session.cards[app.session.index];
+    const info = app.noteDetector.noteAt(target.string,target.fret);
+    const frame = {frequency:app.noteDetector.frequencyFor(info.note,info.octave),clarity:0.85,rms:0.1,onset};
+    onset = false;
+    return frame;
+  };
+  app.startPractice(app.song.notes, 'song');
+  while (app.session.state === 'playing') h.tick();
+  assert.equal(element('play-feedback').textContent, 'Right!');
+  assert.equal(app.session.index, 0);
+  app.toggleSong();
+  assert.equal(app.playing, false);
+  assert.equal(timers.size, 0);
+  app.toggleSong();
+  h.flushTimer();
+  assert.equal(app.session.index, 1);
+  assert.equal(app.currentScreen, 'play');
+  onset = true;
+  while (app.session.state === 'playing') h.tick();
+  h.flushTimer();
+  assert.equal(app.currentScreen, 'achievement');
+  assert.equal(app.session.state, 'result');
+  assert.equal(timers.size, 0);
+});
+
+test('Whole song result Next continues to following phrase then Home', async () => {
+  const {app, element} = appHarness();
+  app.chooseProfile('QA');
+  app.song = {title:'QA',notes:Array.from({length:4}, () => ({string:1,fret:0,note:'E',octave:4,duration:4}))};
+  element('phrase-loop').value = 'all';
+  app.setSongRange();
+  assert.deepEqual(Array.from(app.songRange), [0,2]);
+  app.setupAudio = async () => {app.analyser = {}; return true;};
+  app.readAnalysis = () => ({frequency:null,clarity:0,rms:0});
+  app.startPractice(app.song.notes.slice(0,2), 'song');
+  app.session.state = 'result';
+  app.practiceResult();
+  await app.finishPracticeResult();
+  assert.deepEqual(Array.from(app.songRange), [2,4]);
+  assert.equal(app.currentScreen, 'play');
+  assert.equal(app.session.state, 'playing');
+  app.session.state = 'result';
+  app.practiceResult();
+  await app.finishPracticeResult();
+  assert.equal(app.currentScreen, 'home');
+});
+
+async function runTests() {
 let failures = 0;
 for (const { name, fn } of tests) {
   try {
-    fn();
+    await fn();
     console.log(`✓ ${name}`);
   } catch (error) {
     failures += 1;
@@ -205,3 +589,6 @@ for (const { name, fn } of tests) {
 }
 console.log(`\n${tests.length - failures}/${tests.length} tests passed`);
 process.exitCode = failures ? 1 : 0;
+
+}
+runTests().catch(error => { console.error(error); process.exitCode = 1; });

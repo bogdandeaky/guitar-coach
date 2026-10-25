@@ -14,21 +14,19 @@ class GuitarApp {
     this.progress = this.profile ? new LearningProgress(this.profile) : null;
     this.firstRunStep = 0;
     this.routeAfterTuner = 'home';
-    this.pendingOnsetAt = null;
     this.pausedByInterruption = false;
     this.inputReady = false;
     this.calibrated = false;
     this.lesson = null;
     this.exerciseIndex = 0;
-    this.cardIndex = 0;
     this.song = null;
     this.songIndex = 0;
     this.songRange = [0, 0];
     this.playing = false;
-    this.autoAdvanceTimer = null;
     this.customSongs = this.readJSON('guitar-custom-songs', []);
     this.cacheElements();
     this.bindEvents();
+    this.bindPracticeEvents();
     this.bindVisibility();
     this.renderBuiltInSongs();
     this.renderCustomSongs();
@@ -50,7 +48,7 @@ class GuitarApp {
       'lesson-feedback', 'retry-note', 'skip-note', 'built-in-song-list',
       'play-title', 'play-progress', 'play-count-in', 'rhythm-track',
       'play-string', 'play-fret', 'play-note', 'play-duration', 'play-feedback', 'tempo',
-      'tempo-output', 'wait-mode', 'phrase-loop', 'play-toggle', 'play-retry',
+      'tempo-output', 'phrase-loop', 'play-toggle', 'play-retry',
       'custom-song-list', 'show-import', 'import-form', 'import-title',
       'import-tab', 'import-error', 'achievement-title', 'achievement-body',
       'next-session', 'achievement-home', 'resume-overlay', 'resume-button'
@@ -71,7 +69,7 @@ class GuitarApp {
     this.el['switch-profile'].addEventListener('click', () => this.show('profile'));
     this.el['sound-continue'].addEventListener('click', () => this.openGuidedTuner('lesson'));
     this.el['tuner-continue'].addEventListener('click', () => this.finishTuner());
-    this.el['tuner-skip'].addEventListener('click', () => this.finishTuner());
+    this.el['tuner-skip'].addEventListener('click', () => this.finishTuner(true));
     this.el['retry-note'].addEventListener('click', () => this.retryCard());
     this.el['skip-note'].addEventListener('click', () => this.advanceLessonCard());
     this.el['tempo'].addEventListener('input', () => {
@@ -89,11 +87,10 @@ class GuitarApp {
   bindVisibility() {
     document.addEventListener('visibilitychange', async () => {
       if (document.hidden) {
-        if (['lesson', 'play', 'tuner', 'sound'].includes(this.currentScreen)) {
+        if (this.needsWakeLock()) {
           this.pausedByInterruption = true;
           this.stopLoop();
           this.playing = false;
-          clearTimeout(this.autoAdvanceTimer);
           if (this.audioContext?.state === 'running') await this.audioContext.suspend();
         }
         return;
@@ -125,10 +122,9 @@ class GuitarApp {
 
   show(name) {
     this.stopLoop();
-    clearTimeout(this.autoAdvanceTimer);
     this.currentScreen = name;
     this.screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== `${name}-screen`));
-    this.el['home-button'].classList.toggle('hidden', ['onboarding', 'profile', 'home'].includes(name));
+    this.el['home-button'].classList.toggle('hidden', ['profile', 'home'].includes(name) || (name === 'onboarding' && !this.profile));
     this.el['profile-chip'].classList.toggle('hidden', !this.profile || ['onboarding', 'profile'].includes(name));
     if (this.profile) this.el['profile-chip'].textContent = this.profile;
     if (this.needsWakeLock()) this.requestWakeLock();
@@ -141,6 +137,7 @@ class GuitarApp {
 
   goHome() {
     this.playing = false;
+    this.selectedLesson = null;
     this.show('home');
     this.renderHome();
   }
@@ -153,7 +150,9 @@ class GuitarApp {
   }
 
   renderHome() {
+    if (!this.profile || !this.progress) { this.show('profile'); return; }
     const lesson = this.progress.nextLesson();
+    this.renderLearningSteps();
     const completed = this.progress.completed.length;
     this.el['home-greeting'].textContent = `${this.profile}, let’s play.`;
     this.el['next-lesson-card'].innerHTML = `
@@ -168,13 +167,14 @@ class GuitarApp {
 
   renderFirstRun() {
     this.show('onboarding');
+    this.el['onboarding-next'].classList.remove('hidden');
     const step = FIRST_RUN[this.firstRunStep];
     if (step.type === 'sound') {
       this.el['onboarding-content'].innerHTML = `
         <p class="eyebrow">First setup · 1 minute</p><h1>${step.title}</h1>
-        <div class="hint-card"><strong>Before you pick</strong><ul><li>Clean channel and pedal off</li><li>Low volume</li><li>Phone 0.5–1 m away, off to the side</li></ul></div>
+        <div class="hint-card"><strong>Before you pick</strong><ul><li>Clean channel and pedal off</li><li>Low-to-medium volume</li><li>Phone 30–50 cm from the amp speaker, bottom edge (microphone) facing the amp. Keep it off the amp, away from talking or TV.</li></ul></div>
         <div class="level-track"><div id="first-level-fill"></div><span class="green-zone"></span></div>
-        <p id="first-level-message" class="status-line">Tap below to allow the microphone.</p>`;
+        <p id="first-level-message" class="status-line">Pick one open string and let it ring. Talking or tapping won't count. Tap below to allow the microphone.</p>`;
       this.el['onboarding-next'].textContent = 'Allow microphone';
       this.el['onboarding-next'].disabled = false;
       return;
@@ -191,8 +191,7 @@ class GuitarApp {
       return;
     }
     if (step.type === 'phrase') {
-      this.firstPhraseIndex = 0;
-      this.el['onboarding-content'].innerHTML = `
+        this.el['onboarding-content'].innerHTML = `
         <p class="eyebrow">Your first music</p><h1>${step.title}</h1>
         <p class="lede">Wait-for-me is on. Pick each card once.</p>
         <article class="note-card"><div class="note-directions">
@@ -220,16 +219,18 @@ class GuitarApp {
       <p class="eyebrow">${step.type === 'welcome' ? 'A calm first lesson' : 'One-skill demo'}</p>
       <h1>${step.title}</h1><p class="lede">${step.body}</p>
       ${step.tips ? `<div class="hint-card">${step.tips.map(tip => `<p>✓ ${tip}</p>`).join('')}</div>` : ''}
-      ${step.type === 'hold' ? '<div class="pick-illustration hero-card"><h2>Thumb ↓</h2><p>◢ Pick tip · only 3–4 mm showing</p><h2>Index finger ↑</h2></div>' : ''}`;
+      ${step.type === 'hold' ? this.pickDrawing() : ''}`;
     this.el['onboarding-next'].textContent = step.type === 'welcome' ? 'Show me how' : 'Check my sound';
     this.el['onboarding-next'].disabled = false;
   }
 
   async nextFirstRun() {
     const step = FIRST_RUN[this.firstRunStep];
-    if (step.type === 'sound' && !this.inputReady) {
+    if (step.type === 'phrase') return this.nextPracticeCard();
+    if (step.type === 'sound' && !this.soundPassed) {
+      this.el['onboarding-next'].disabled = true;
       const ok = await this.setupAudio();
-      if (!ok) return;
+      if (!ok) { this.el['onboarding-next'].disabled = false; return; }
       await this.calibrateNoiseFloor();
       this.runFirstSoundCheck();
       this.el['onboarding-next'].textContent = 'Sound is good';
@@ -241,6 +242,7 @@ class GuitarApp {
       this.show('profile');
       return;
     }
+    this.soundPassed = false;
     this.firstRunStep += 1;
     this.renderFirstRun();
   }
@@ -299,105 +301,25 @@ class GuitarApp {
   }
 
   runFirstSoundCheck() {
-    this.stopLoop();
-    const fill = document.getElementById('first-level-fill');
-    const message = document.getElementById('first-level-message');
-    const tick = () => {
-      if (this.currentScreen !== 'onboarding' || FIRST_RUN[this.firstRunStep].type !== 'sound') return;
-      this.analyser.getFloatTimeDomainData(this.buffer);
-      const rms = this.pitchDetector.getRMS(this.buffer);
-      const percent = Math.min(100, rms * 330);
-      fill.style.width = `${percent}%`;
-      const good = rms >= 0.015 && rms <= 0.24;
-      fill.style.background = good ? 'var(--green)' : rms > 0.24 ? 'var(--red)' : 'var(--amber)';
-      message.textContent = good ? 'Good level — clearly heard' : rms > 0.24 ? 'A little loud — turn the amp down' : 'Pick a little louder';
-      this.el['onboarding-next'].disabled = !good;
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.listenForSound(document.getElementById('first-level-fill'), document.getElementById('first-level-message'), this.el['onboarding-next']);
   }
 
   readAnalysis() {
     this.analyser.getFloatTimeDomainData(this.buffer);
-    const result = this.pitchDetector.analyze(this.buffer);
-    if (result.onset) this.pendingOnsetAt = performance.now();
-    const pick = Boolean(
-      result.frequency
-      && this.pendingOnsetAt
-      && performance.now() - this.pendingOnsetAt < 280
-    );
-    if (pick) this.pendingOnsetAt = null;
-    return { ...result, pick };
+    return this.pitchDetector.analyze(this.buffer);
   }
 
   runFirstTuner() {
-    this.stopLoop();
-    const tick = () => {
-      if (this.currentScreen !== 'onboarding' || FIRST_RUN[this.firstRunStep].type !== 'tuner') return;
-      const result = this.readAnalysis();
-      const note = result.frequency ? this.noteDetector.frequencyToNote(result.frequency) : null;
-      const noteEl = document.getElementById('first-tuner-note');
-      const status = document.getElementById('first-tuner-status');
-      const needle = document.getElementById('first-tuner-needle');
-      if (note) {
-        noteEl.textContent = note.fullName;
-        status.textContent = Math.abs(note.cents) <= 8 ? 'In tune — nice' : `${Math.abs(note.cents)}¢ ${note.cents > 0 ? 'sharp' : 'flat'}`;
-        needle.style.transform = `rotate(${Math.max(-45, Math.min(45, note.cents)) * 1.4}deg)`;
-      }
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.beginTunerTracking();
+    this.listenTuner(true);
   }
 
   runFirstPhrase() {
-    this.stopLoop();
-    const notes = FIRST_RUN[this.firstRunStep].notes;
-    const updateCard = () => {
-      const target = notes[this.firstPhraseIndex];
-      const info = this.noteDetector.noteAt(target.string, target.fret);
-      document.getElementById('first-string').textContent = target.string;
-      document.getElementById('first-fret').textContent = target.fret;
-      document.getElementById('first-note').textContent = info.note;
-    };
-    updateCard();
-    const tick = () => {
-      if (this.currentScreen !== 'onboarding' || FIRST_RUN[this.firstRunStep].type !== 'phrase') return;
-      const result = this.readAnalysis();
-      const target = notes[this.firstPhraseIndex];
-      const info = this.noteDetector.noteAt(target.string, target.fret);
-      const feedback = document.getElementById('first-feedback');
-      if (result.pick) {
-        if (this.noteDetector.matchesNote(result.frequency, info.note, info.octave, 65)) {
-          feedback.className = 'feedback success';
-          feedback.textContent = 'Heard it — good pick';
-          this.firstPhraseIndex += 1;
-          if (this.firstPhraseIndex >= notes.length) {
-            setTimeout(() => {
-              this.firstRunStep += 1;
-              this.el['onboarding-next'].classList.remove('hidden');
-              this.renderFirstRun();
-            }, 550);
-            return;
-          }
-          setTimeout(() => {
-            updateCard();
-            feedback.className = 'feedback neutral';
-            feedback.textContent = 'Mute, then pick the next note';
-          }, 350);
-        } else {
-          feedback.className = 'feedback error';
-          feedback.textContent = `Try fret ${target.fret} again`;
-        }
-      } else if (result.reason === 'unclear' && result.rms > this.pitchDetector.noiseFloor * 1.3) {
-        feedback.className = 'feedback warning';
-        feedback.textContent = 'I couldn’t hear clearly — no penalty';
-      }
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.startPractice(FIRST_RUN[this.firstRunStep].notes, 'intro');
   }
 
   async beginDailySession() {
+    this.soundPassed = false;
     this.routeAfterTuner = 'lesson';
     this.show('sound');
     const ok = await this.setupAudio();
@@ -410,20 +332,7 @@ class GuitarApp {
   }
 
   runSoundCheck() {
-    this.stopLoop();
-    const tick = () => {
-      if (this.currentScreen !== 'sound') return;
-      this.analyser.getFloatTimeDomainData(this.buffer);
-      const rms = this.pitchDetector.getRMS(this.buffer);
-      const percent = Math.min(100, rms * 330);
-      const good = rms >= 0.015 && rms <= 0.24;
-      this.el['level-fill'].style.width = `${percent}%`;
-      this.el['level-fill'].style.background = good ? 'var(--green)' : rms > 0.24 ? 'var(--red)' : 'var(--amber)';
-      this.el['level-message'].textContent = good ? 'Good level — ready to tune' : rms > 0.24 ? 'Too loud — turn down a little' : 'Pick any string';
-      this.el['sound-continue'].disabled = !good;
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.listenForSound(this.el['level-fill'], this.el['level-message'], this.el['sound-continue']);
   }
 
   async openStandaloneTuner() {
@@ -437,6 +346,7 @@ class GuitarApp {
     this.routeAfterTuner = route;
     this.tunerGuided = guided;
     this.tunerStringIndex = 0;
+    this.beginTunerTracking();
     this.show('tuner');
     this.pitchDetector.resetTracking();
     this.el['tuner-step'].textContent = guided ? 'Step 2 of 3 · guided tuning' : 'Auto tuner';
@@ -451,43 +361,19 @@ class GuitarApp {
       return;
     }
     const target = this.noteDetector.guitarStrings[this.tunerStringIndex];
-    this.el['tuner-target'].textContent = `String ${target.number} · ${target.note}${target.octave}`;
+    this.el['tuner-target'].textContent = stringLabel(target.number);
     this.el['tuner-continue'].disabled = true;
   }
 
   runTuner() {
-    this.stopLoop();
-    const tick = () => {
-      if (this.currentScreen !== 'tuner') return;
-      const result = this.readAnalysis();
-      if (!result.frequency) {
-        this.el['tuner-message'].textContent = result.reason === 'unclear' ? 'I couldn’t hear clearly' : 'Listening…';
-        this.raf = requestAnimationFrame(tick);
-        return;
-      }
-      const note = this.noteDetector.frequencyToNote(result.frequency);
-      const detectedString = this.noteDetector.findGuitarString(result.frequency);
-      this.el['tuner-note'].textContent = note.fullName;
-      this.el['tuner-cents'].textContent = Math.abs(note.cents) <= 5 ? 'In tune' : `${Math.abs(note.cents)}¢ ${note.cents > 0 ? 'sharp' : 'flat'}`;
-      this.el['tuner-needle'].style.transform = `rotate(${Math.max(-50, Math.min(50, note.cents)) * 1.3}deg)`;
-      this.el['tuner-string'].textContent = `String ${detectedString.number} · ${detectedString.note}${detectedString.octave}${detectedString.number === 1 ? ' · thin high E' : ''}`;
-      if (this.tunerGuided) {
-        const target = this.noteDetector.guitarStrings[this.tunerStringIndex];
-        const matches = this.noteDetector.matchesNote(result.frequency, target.note, target.octave, 12, false);
-        this.el['tuner-message'].textContent = matches ? 'That string is ready' : `Need string ${target.number} · ${target.note}${target.octave}`;
-        this.el['tuner-continue'].disabled = !matches;
-      } else {
-        this.el['tuner-message'].textContent = Math.abs(note.cents) <= 5 ? 'That string is ready' : note.cents > 0 ? 'Loosen slightly' : 'Tighten slightly';
-      }
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.listenTuner(false);
   }
 
-  finishTuner() {
-    if (this.tunerGuided && this.el['tuner-continue'].disabled === false && this.tunerStringIndex < 5) {
+  finishTuner(skip = false) {
+    if (!skip && this.tunerGuided && this.el['tuner-continue'].disabled === false && this.tunerStringIndex < 5) {
       this.tunerStringIndex += 1;
       this.pitchDetector.resetTracking();
+      this.tuneGate.reset();
       this.renderTunerTarget();
       return;
     }
@@ -496,40 +382,40 @@ class GuitarApp {
   }
 
   startLesson() {
-    this.lesson = this.progress.nextLesson();
+    this.lesson = this.selectedLesson || this.progress.nextLesson();
+    this.selectedLesson = null;
     this.exerciseIndex = 0;
-    this.cardIndex = 0;
-    this.pitchDetector.resetTracking();
+    this.exerciseResults = [];
+    this.exerciseScores = [];
     this.show('lesson');
-    this.renderLessonCard(true);
+    this.startExercise();
   }
 
   expandedExercise(exercise) {
-    const base = exercise.type === 'note' ? [exercise] : exercise.notes;
-    return Array.from({ length: exercise.repeats || 1 }, () => base).flat();
+    return exercise.type === 'note' ? [exercise] : exercise.notes;
   }
 
   currentLessonTarget() {
-    const exercise = this.lesson.exercises[this.exerciseIndex];
-    return this.expandedExercise(exercise)[this.cardIndex];
+    return this.session.cards[this.session.index];
   }
 
-  async renderLessonCard(withCountIn = false) {
+  renderLessonCard() {
     const exercise = this.lesson.exercises[this.exerciseIndex];
-    const cards = this.expandedExercise(exercise);
-    const target = cards[this.cardIndex];
-    const info = this.noteDetector.noteAt(target.string, target.fret);
-    this.el['lesson-step'].textContent = `Card ${this.cardIndex + 1} of ${cards.length} · skill ${this.exerciseIndex + 1}/${this.lesson.exercises.length}`;
+    const target = this.currentLessonTarget();
+    this.el['lesson-step'].textContent = `Card ${this.session.index + 1}/${this.session.cards.length} · exercise ${this.exerciseIndex + 1}/${this.lesson.exercises.length}`;
     this.el['lesson-title'].textContent = this.lesson.title;
-    this.el['lesson-tip'].innerHTML = `<strong>One skill:</strong> ${this.lesson.tip}`;
+    this.el['lesson-tip'].textContent = this.lesson.tip;
     this.el['note-instruction'].textContent = exercise.instruction;
-    this.el['card-string'].textContent = target.string;
+    this.el['card-string'].textContent = stringLabel(target.string);
+    const info = this.noteDetector.noteAt(target.string, target.fret);
+    const small = document.createElement('small');
+    small.className = 'scientific-note';
+    small.textContent = `${info.note}${info.octave}`;
+    this.el['card-string'].appendChild(small);
     this.el['card-fret'].textContent = target.fret;
-    this.el['card-finger'].textContent = target.fret === 0 ? 'OPEN' : target.fret === 1 ? '1' : '2';
+    this.el['card-finger'].textContent = target.finger || (target.fret ? target.fret : 'OPEN');
     this.renderFretboard(this.el['mini-fretboard'], target.string, target.fret);
-    this.setFeedback(this.el['lesson-feedback'], 'neutral', `${info.note}${info.octave} · pick once when ready`);
-    if (withCountIn && exercise.type === 'phrase') await this.countIn(this.el['count-in'], 70);
-    this.runLessonInput();
+    this.setFeedback(this.el['lesson-feedback'], 'neutral', 'Mute, then pick once and let it ring.');
   }
 
   renderFretboard(container, activeString, activeFret) {
@@ -546,57 +432,44 @@ class GuitarApp {
     }
   }
 
-  runLessonInput() {
-    this.stopLoop();
-    const tick = () => {
-      if (this.currentScreen !== 'lesson') return;
-      const result = this.readAnalysis();
-      const target = this.currentLessonTarget();
-      const info = this.noteDetector.noteAt(target.string, target.fret);
-      if (result.pick) {
-        if (this.noteDetector.matchesNote(result.frequency, info.note, info.octave, 65)) {
-          this.setFeedback(this.el['lesson-feedback'], 'success', `Heard ${info.note} — nice clean pick`);
-          this.stopLoop();
-          setTimeout(() => this.advanceLessonCard(), 500);
-          return;
-        }
-        this.setFeedback(this.el['lesson-feedback'], 'error', `Try string ${target.string}, fret ${target.fret} again`);
-      } else if (result.reason === 'unclear' && result.rms > this.pitchDetector.noiseFloor * 1.3) {
-        this.setFeedback(this.el['lesson-feedback'], 'warning', 'I couldn’t hear clearly — mute, then pick again');
-      }
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
-  }
+  runLessonInput() { this.runPracticeInput(); }
 
   advanceLessonCard() {
     this.stopLoop();
-    const exercise = this.lesson.exercises[this.exerciseIndex];
-    const cards = this.expandedExercise(exercise);
-    this.cardIndex += 1;
-    if (this.cardIndex < cards.length) return this.renderLessonCard(false);
-    this.exerciseIndex += 1;
-    this.cardIndex = 0;
-    if (this.exerciseIndex < this.lesson.exercises.length) return this.renderLessonCard(true);
-    this.completeLesson();
+    const skipped = this.session.cards[this.session.index];
+    this.session.skip();
+    if (this.session.state === 'result') {
+      this.saveExerciseScore();
+      this.exerciseResults[this.exerciseIndex] = false;
+      // Skip crosses exercise boundaries rather than presenting a one-card result.
+      while (this.exerciseIndex + 1 < this.lesson.exercises.length) {
+        this.exerciseIndex++;
+        const cards = this.expandedExercise(this.lesson.exercises[this.exerciseIndex]);
+        const different = cards.findIndex(card => card.string !== skipped.string || card.fret !== skipped.fret);
+        if (different >= 0) {
+          this.session = new PracticeSession(cards);
+          this.session.index = different;
+          this.preparePracticeCard(false);
+          return;
+        }
+        this.exerciseScores[this.exerciseIndex] = {right:0,attempts:0,total:cards.length};
+        this.exerciseResults[this.exerciseIndex] = false;
+        this.session = new PracticeSession(cards);
+        this.session.skip();
+      }
+      this.practiceResult();
+    }
+    else this.preparePracticeCard();
   }
 
   retryCard() {
-    this.pitchDetector.resetTracking();
-    this.setFeedback(this.el['lesson-feedback'], 'neutral', 'Muted. Pick the card once more.');
-    this.runLessonInput();
+    this.session.retry();
+    this.preparePracticeCard();
   }
 
   completeLesson() {
-    const completedTitle = this.lesson.title;
-    this.progress.complete(this.lesson.id);
-    const next = this.progress.nextLesson();
-    this.show('achievement');
-    this.el['achievement-title'].textContent = `${completedTitle} complete`;
-    this.el['achievement-body'].textContent = this.lesson.unlockSongs
-      ? 'Scrolling rhythm practice is now unlocked.'
-      : 'You learned one small skill without rushing.';
-    this.el['next-session'].innerHTML = `<p class="eyebrow">Next session</p><h2>${next.title}</h2><p>${next.skill}</p>`;
+    if (this.exerciseResults.every(Boolean)) this.progress.complete(this.lesson.id);
+    this.goHome();
   }
 
   setFeedback(element, type, text) {
@@ -660,17 +533,20 @@ class GuitarApp {
 
   setSongRange() {
     const value = this.el['phrase-loop'].value;
-    this.songRange = value === 'all' ? [0, this.song.notes.length] : value.split(':').map(Number);
+    this.wholeSong = value === 'all';
+    this.songRange = this.wholeSong ? this.phraseRanges(this.song.notes)[0] : value.split(':').map(Number);
     this.resetSongPhrase();
   }
 
   resetSongPhrase() {
     this.stopLoop();
-    clearTimeout(this.autoAdvanceTimer);
     this.playing = false;
     this.songIndex = this.songRange[0];
+    this.session = null;
     this.songResults = {};
-    this.el['play-toggle'].textContent = 'Play with count-in';
+    this.el['play-toggle'].textContent = 'Play';
+    this.el['play-toggle'].disabled = false;
+    document.getElementById('song-next').disabled = true;
     this.renderSongTrack();
     this.renderSongCard();
   }
@@ -692,9 +568,10 @@ class GuitarApp {
     const note = this.song.notes[this.songIndex];
     this.el['play-title'].textContent = this.song.title;
     this.el['play-progress'].textContent = `${this.songIndex - this.songRange[0] + 1}/${this.songRange[1] - this.songRange[0]}`;
-    this.el['play-string'].textContent = note.string;
+    this.el['play-string'].textContent = stringLabel(note.string);
     this.el['play-fret'].textContent = note.fret;
     this.el['play-note'].textContent = `${note.note}${note.octave}`;
+    this.el['play-note'].classList.add('scientific-note');
     this.el['play-duration'].textContent = `${note.duration} beat${note.duration === 1 ? '' : 's'} · string 1 is the thin high E`;
   }
 
@@ -702,69 +579,37 @@ class GuitarApp {
     if (this.playing) {
       this.playing = false;
       this.stopLoop();
-      clearTimeout(this.autoAdvanceTimer);
       this.el['play-toggle'].textContent = 'Resume';
       return;
     }
     this.playing = true;
     this.el['play-toggle'].textContent = 'Pause';
-    await this.countIn(this.el['play-count-in'], Number(this.el.tempo.value));
-    if (!this.playing || this.currentScreen !== 'play') return;
-    this.pitchDetector.resetTracking();
-    this.runSongInput();
-    if (!this.el['wait-mode'].checked) this.scheduleSongDeadline();
-  }
-
-  runSongInput() {
-    this.stopLoop();
-    const tick = () => {
-      if (!this.playing || this.currentScreen !== 'play') return;
-      const result = this.readAnalysis();
-      const target = this.song.notes[this.songIndex];
-      if (result.pick) {
-        if (this.noteDetector.matchesNote(result.frequency, target.note, target.octave, 65)) {
-          this.songResults[this.songIndex] = 'hit';
-          this.setFeedback(this.el['play-feedback'], 'success', 'Hit — keep going');
-          clearTimeout(this.autoAdvanceTimer);
-          this.advanceSongNote();
-          return;
-        }
-        this.setFeedback(this.el['play-feedback'], 'error', `Try string ${target.string}, fret ${target.fret}`);
-      } else if (result.reason === 'unclear' && result.rms > this.pitchDetector.noiseFloor * 1.3) {
-        this.setFeedback(this.el['play-feedback'], 'warning', 'I couldn’t hear clearly — no penalty');
+    if (this.practiceKind === 'song' && this.session) {
+      if (this.session.state === 'playing') {
+        this.attempt = new NoteAttempt();
+        this.runSongInput();
       }
-      this.raf = requestAnimationFrame(tick);
-    };
-    tick();
-  }
-
-  scheduleSongDeadline() {
-    const target = this.song.notes[this.songIndex];
-    const milliseconds = (target.duration || 1) * 60000 / Number(this.el.tempo.value) + 700;
-    this.autoAdvanceTimer = setTimeout(() => {
-      if (!this.playing) return;
-      this.songResults[this.songIndex] = 'missed';
-      this.setFeedback(this.el['play-feedback'], 'error', 'Miss — retry the phrase whenever you like');
-      this.advanceSongNote();
-    }, milliseconds);
-  }
-
-  advanceSongNote() {
-    this.stopLoop();
-    this.songIndex += 1;
-    if (this.songIndex >= this.songRange[1]) {
-      this.playing = false;
-      this.el['play-toggle'].textContent = 'Play again';
-      this.songIndex = this.songRange[0];
-      this.renderSongTrack();
-      this.setFeedback(this.el['play-feedback'], 'success', 'Phrase complete');
-      return;
+      else this.scheduleSongAdvance();
+    } else {
+      this.el['play-toggle'].disabled = true;
+      await this.countIn(this.el['play-count-in'], Number(this.el.tempo.value));
+      this.el['play-toggle'].disabled = false;
+      if (!this.playing || this.currentScreen !== 'play') return;
+      this.startPractice(this.song.notes.slice(...this.songRange), 'song');
     }
-    this.renderSongTrack();
-    this.renderSongCard();
-    this.runSongInput();
-    if (!this.el['wait-mode'].checked) this.scheduleSongDeadline();
   }
+
+  scheduleSongAdvance() {
+    this.stopLoop();
+    const session = this.session;
+    this.songAdvanceTimer = setTimeout(() => {
+      this.songAdvanceTimer = null;
+      if (!this.playing || this.currentScreen !== 'play' || this.session !== session) return;
+      this.nextPracticeCard();
+    }, 180);
+  }
+
+  runSongInput() { this.runPracticeInput(); }
 
   async countIn(element, bpm) {
     element.classList.remove('hidden');
@@ -772,7 +617,7 @@ class GuitarApp {
       element.textContent = beat;
       this.clickMetronome(beat === 4);
       await new Promise(resolve => setTimeout(resolve, 60000 / bpm));
-      if (!['lesson', 'play'].includes(this.currentScreen)) break;
+      if (!this.playing || this.currentScreen !== 'play') break;
     }
     element.classList.add('hidden');
   }
@@ -817,6 +662,8 @@ class GuitarApp {
   }
 
   stopLoop() {
+    clearTimeout(this.songAdvanceTimer);
+    this.songAdvanceTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
   }
@@ -866,13 +713,257 @@ class GuitarApp {
     await this.requestWakeLock();
     if (this.currentScreen === 'tuner') this.runTuner();
     if (this.currentScreen === 'sound') this.runSoundCheck();
-    if (this.currentScreen === 'lesson') this.runLessonInput();
+    if (this.currentScreen === 'lesson' && this.session?.state === 'playing') this.preparePracticeCard();
+    if (this.currentScreen === 'onboarding') {
+      const type = FIRST_RUN[this.firstRunStep].type;
+      if (type === 'sound') this.runFirstSoundCheck();
+      if (type === 'tuner') this.runFirstTuner();
+      if (type === 'phrase' && this.session?.state === 'playing') this.preparePracticeCard();
+    }
     if (this.currentScreen === 'play') {
-      this.playing = true;
-      this.runSongInput();
-      if (!this.el['wait-mode'].checked) this.scheduleSongDeadline();
+      this.playing = false;
+      this.toggleSong();
     }
   }
+  bindPracticeEvents() {
+    document.getElementById('replay-intro').onclick = () => { this.firstRunStep = 0; this.soundPassed = false; this.renderFirstRun(); };
+    document.getElementById('lesson-next').onclick = () => this.nextPracticeCard();
+    document.getElementById('song-next').onclick = () => this.nextPracticeCard();
+    document.getElementById('result-retry').onclick = () => this.retryPractice();
+    document.getElementById('result-next').onclick = () => this.finishPracticeResult();
+  }
+
+  renderLearningSteps() {
+    const list = document.getElementById('learning-steps');
+    list.replaceChildren();
+    LEARNING_PATH.forEach(lesson => {
+      const button = document.createElement('button');
+      button.className = 'secondary-button';
+      button.textContent = `${this.progress.completed.includes(lesson.id) ? '✓ ' : ''}${lesson.title}`;
+      button.onclick = () => { this.selectedLesson = lesson; this.beginDailySession(); };
+      list.appendChild(button);
+    });
+  }
+
+  pickDrawing() {
+    return `<figure class="pick-illustration hint-card"><svg viewBox="0 0 520 400" role="img" aria-label="Pick held between thumb pad and side of curled index finger, with 2–3 mm of tip exposed and a slight tilt toward the strings">
+      <g stroke="#b8c8bc" stroke-width="3"><path d="M45 315H475M45 337H475M45 359H475"/></g>
+      <path d="M150 180 Q105 120 150 90 Q190 65 235 100 L298 157 Q325 192 300 228 Q263 260 226 225 L189 185 Q178 169 190 157 Q204 144 219 161 L254 193" fill="#b98c69" stroke="#ffe0b7" stroke-width="4"/>
+      <path d="M221 179 Q245 151 288 173 Q303 185 293 204 L266 268 Q254 282 248 263Z" fill="#ffc963" stroke="#382810" stroke-width="4"/>
+      <path d="M104 220 Q100 184 146 176 L245 172 Q280 174 278 198 Q275 219 244 224 L164 240 Q126 250 104 220Z" fill="#e2b18a" stroke="#ffe0b7" stroke-width="4"/>
+      <g fill="none" stroke="#f4f5eb" stroke-width="2"><path d="M64 257L150 220M370 66L260 128M389 260L265 269M400 383L430 337"/><path d="M290 288Q320 278 316 246"/><path d="M257 284V305l-7-8m7 8 7-8"/></g>
+      <g fill="#f4f5eb" font-family="sans-serif" font-size="21"><text x="12" y="282">Thumb pad</text><text x="270" y="36">Curled index</text><text x="295" y="61">finger side</text><text x="324" y="239">Pick tip</text><text x="324" y="264">2–3 mm</text><text x="328" y="300">Angle: 10–20°</text><text x="350" y="397">Strings</text></g>
+    </svg><figcaption>Rest the pick on the side of your curled index finger. Cover it with your thumb pad. Point the exposed tip toward the strings, with a slight tilt (about 10–20°).</figcaption></figure>`;
+  }
+
+  listenForSound(fill, message, button) {
+    this.stopLoop();
+    const gate = new SteadyPitch();
+    let passed = false;
+    button.disabled = true;
+    const screen = this.currentScreen;
+    const tick = () => {
+      if (this.currentScreen !== screen || !this.analyser) return;
+      const frame = this.readAnalysis();
+      if (gate.update(frame, performance.now()) && frame.rms <= 0.24) passed = true;
+      this.soundPassed = passed;
+      fill.style.width = `${Math.min(100, frame.rms * 330)}%`;
+      fill.style.background = passed ? 'var(--green)' : 'var(--amber)';
+      message.textContent = passed ? 'Steady string heard — ready.' : frame.rms > 0.24 ? 'Turn the amp down a little.' : "Pick one open string and let it ring. Talking or tapping won't count.";
+      button.disabled = !passed;
+      this.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  startExercise() {
+    this.startPractice(this.expandedExercise(this.lesson.exercises[this.exerciseIndex]), 'lesson');
+  }
+
+  startPractice(cards, kind) {
+    this.stopLoop();
+    this.practiceKind = kind;
+    this.session = new PracticeSession(cards);
+    this.preparePracticeCard();
+  }
+
+  preparePracticeCard(resetTracking = true) {
+    this.stopLoop();
+    this.attempt = new NoteAttempt();
+    if (resetTracking) this.pitchDetector.resetTracking();
+    if (this.practiceKind === 'lesson') {
+      this.renderLessonCard();
+      document.getElementById('lesson-next').disabled = true;
+    } else if (this.practiceKind === 'song') {
+      this.playing = true;
+      this.el['play-toggle'].textContent = 'Pause';
+      this.el['play-toggle'].disabled = false;
+      this.songIndex = this.songRange[0] + this.session.index;
+      this.renderSongCard(); this.renderSongTrack();
+      document.getElementById('song-next').disabled = true;
+      this.setFeedback(this.el['play-feedback'], 'neutral', 'Pick once and let it ring.');
+    } else {
+      const target = this.session.cards[this.session.index];
+      const info = this.noteDetector.noteAt(target.string, target.fret);
+      document.getElementById('first-string').textContent = stringLabel(target.string);
+      document.getElementById('first-fret').textContent = target.fret;
+      const note = document.getElementById('first-note');
+      note.textContent = `${info.note}${info.octave}`;
+      note.className = 'scientific-note';
+      this.setFeedback(document.getElementById('first-feedback'), 'neutral', 'Pick once and let it ring.');
+      const button = this.el['onboarding-next'];
+      button.classList.remove('hidden'); button.disabled = true; button.textContent = 'Next';
+    }
+    this.runPracticeInput();
+  }
+
+  practiceFeedback() {
+    return this.practiceKind === 'intro' ? document.getElementById('first-feedback') : this.el[this.practiceKind === 'song' ? 'play-feedback' : 'lesson-feedback'];
+  }
+
+  runPracticeInput() {
+    this.stopLoop();
+    const screen = this.currentScreen;
+    const tick = () => {
+      if (this.currentScreen !== screen || this.session?.state !== 'playing' || !this.analyser) return;
+      const target = this.session.cards[this.session.index];
+      const info = this.noteDetector.noteAt(target.string, target.fret);
+      const result = this.attempt.update(this.readAnalysis(), performance.now(), this.noteDetector.frequencyFor(info.note, info.octave), this.pitchDetector.noiseFloor);
+      if (result) {
+        const right = result.type === 'right';
+        this.session.record(right);
+        if (right && this.practiceKind === 'song') this.songResults[this.songIndex] = 'hit';
+        const heard = result.frequency ? this.noteDetector.frequencyToNote(result.frequency).fullName : 'unclear sound';
+        const message = right ? 'Right!' : result.type === 'muted' ? 'The note stopped too fast. Let it ring.' : `Not quite - that was ${heard}, try string ${target.string} fret ${target.fret}`;
+        this.setFeedback(this.practiceFeedback(), right ? 'success' : 'error', message);
+        if (right) {
+          if (this.practiceKind === 'song') { this.scheduleSongAdvance(); return; }
+          const id = this.practiceKind === 'intro' ? 'onboarding-next' : this.practiceKind === 'song' ? 'song-next' : 'lesson-next';
+          document.getElementById(id).disabled = false;
+          document.getElementById(id).textContent = this.session.state === 'result' ? 'See result' : 'Next';
+          return;
+        }
+        // A new onset is required; a held wrong note cannot generate more attempts.
+        this.attempt = new NoteAttempt();
+      }
+      this.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  nextPracticeCard() {
+    if (this.session.state === 'result') return this.practiceResult();
+    if (this.session.state !== 'feedback') return;
+    this.session.next();
+    this.preparePracticeCard(false);
+  }
+
+  saveExerciseScore() {
+    this.exerciseScores[this.exerciseIndex] = {
+      right: this.session.right, attempts: this.session.attempts, total: this.session.cards.length
+    };
+  }
+
+  practiceResult() {
+    this.stopLoop();
+    this.playing = false;
+    this.show('achievement');
+    let score = {right:this.session.right,total:this.session.cards.length,attempts:this.session.attempts};
+    const lessonEnd = this.practiceKind === 'lesson' && this.exerciseIndex === this.lesson.exercises.length - 1;
+    if (this.practiceKind === 'lesson') this.saveExerciseScore();
+    if (lessonEnd) score = this.exerciseScores.reduce((sum, item) => ({
+      right:sum.right + item.right, total:sum.total + item.total, attempts:sum.attempts + item.attempts
+    }), {right:0,total:0,attempts:0});
+    this.el['achievement-title'].textContent = lessonEnd ? 'Lesson result' : 'Practice result';
+    this.el['achievement-body'].textContent = `${score.right}/${score.total} notes right · ${score.attempts} attempts. ${score.right === score.total ? 'Well done!' : 'You can try again or continue.'}`;
+    this.el['next-session'].textContent = 'Try again, or press Next when you are ready.';
+    this.el['achievement-home'].textContent = 'Home';
+    this.el['achievement-home'].classList.toggle('hidden', !this.profile);
+  }
+
+  async retryPractice() {
+    const kind = this.practiceKind;
+    const cards = this.session.cards;
+    const ok = await this.setupAudio();
+    if (!ok) return;
+    if (kind === 'intro') { this.renderFirstRun(); return; }
+    this.show(kind === 'song' ? 'play' : 'lesson');
+    this.startPractice(cards, kind);
+  }
+
+  async finishPracticeResult() {
+    if (this.session.state !== 'result') return;
+    if (this.practiceKind === 'lesson') this.exerciseResults[this.exerciseIndex] = this.session.right === this.session.cards.length;
+    this.session.next();
+    if (this.practiceKind === 'intro') {
+      this.firstRunStep++;
+      this.renderFirstRun();
+    } else if (this.practiceKind === 'song') {
+      const ranges = this.phraseRanges(this.song.notes);
+      const following = ranges.find(range => range[0] === this.songRange[1]);
+      if (!this.wholeSong || !following) { this.goHome(); return; }
+      const ok = await this.setupAudio();
+      if (!ok) { this.session.state = 'result'; return; }
+      this.songRange = following;
+      this.show('play');
+      this.resetSongPhrase();
+      this.startPractice(this.song.notes.slice(...this.songRange), 'song');
+    }
+    else if (++this.exerciseIndex < this.lesson.exercises.length) {
+      const ok = await this.setupAudio();
+      if (!ok) return;
+      this.show('lesson'); this.startExercise();
+    } else this.completeLesson();
+  }
+
+  beginTunerTracking() {
+    this.tunedStrings = new Set();
+    this.tuneGate = new SteadyPitch(500, 10);
+    this.tuneString = null;
+  }
+
+  listenTuner(first) {
+    this.stopLoop();
+    if (!this.tuneGate) this.beginTunerTracking();
+    const tick = () => {
+      if (this.currentScreen !== (first ? 'onboarding' : 'tuner') || !this.analyser) return;
+      const frame = this.readAnalysis();
+      const f = frame.rawFrequency ?? frame.frequency;
+      const target = first || !this.tunerGuided ? this.noteDetector.findGuitarString(f) : this.noteDetector.guitarStrings[this.tunerStringIndex];
+      let stable = false;
+      let cents = null;
+      if (target && f) {
+        if (this.tuneString !== target.number) { this.tuneGate.reset(); this.tuneString = target.number; }
+        cents = 1200 * Math.log2(f / target.frequency);
+        stable = this.tuneGate.update(Math.abs(cents) <= 5 ? frame : { frequency: null, clarity: 0 }, performance.now());
+        if (stable) this.tunedStrings.add(target.number);
+      } else this.tuneGate.reset();
+      const label = target ? stringLabel(target.number) : 'Pick one open string';
+      const scientific = f ? this.noteDetector.frequencyToNote(f).fullName : '—';
+      const instruction = stable ? '✓ In tune' : cents === null ? 'Pick and let it ring' : Math.abs(cents) <= 5 ? 'Hold steady…' : cents < 0 ? '↑ Tighten (too low)' : '↓ Loosen (too high)';
+      const noteEl = first ? document.getElementById('first-tuner-note') : this.el['tuner-note'];
+      noteEl.replaceChildren();
+      noteEl.append(document.createTextNode(label));
+      const small = document.createElement('small'); small.className = 'scientific-note'; small.textContent = scientific; noteEl.appendChild(small);
+      const status = first ? document.getElementById('first-tuner-status') : this.el['tuner-cents'];
+      status.textContent = instruction; status.className = `tune-direction${stable ? ' tuned' : ''}`;
+      const list = this.noteDetector.guitarStrings.slice().reverse().map(item => `${this.tunedStrings.has(item.number) ? '✓' : '○'} ${stringLabel(item.number)}`).join(' · ');
+      if (first) {
+        let el = document.getElementById('first-tuned-list');
+        if (!el) { el = document.createElement('p'); el.id = 'first-tuned-list'; status.after(el); }
+        el.textContent = list;
+      } else {
+        document.getElementById('tuned-strings').textContent = list;
+        this.el['tuner-string'].textContent = label;
+        this.el['tuner-message'].textContent = stable ? 'That string is ready.' : 'Pick the open string again as needed.';
+        this.el['tuner-continue'].disabled = this.tunerGuided && !stable;
+        this.el['tuner-needle'].style.transform = `rotate(${Math.max(-50, Math.min(50, cents || 0))}deg)`;
+      }
+      this.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
 }
 
 new GuitarApp();

@@ -37,7 +37,13 @@ The app requests microphone audio only after a user tap with:
 
 It shows the settings the browser actually reports through `MediaStreamTrack.getSettings()`.
 
-Pitch detection uses a 4096-sample YIN window. Readings below 0.6 clarity are rejected. A short room-noise calibration establishes a level gate. Onset detection is separate from pitch confirmation: a note advances only after a new loudness attack and a matching, clear pitch. Pitch smoothing uses a three-reading median, and a single-frame octave jump is ignored.
+Pitch detection uses a 4096-sample YIN window. Practice and sound checks use a 300 ms confidence window: at least 75% of frames must have clarity ≥0.8 and stable pitch in the 75–1400 Hz guitar range. Brief weak readings are tolerated; more than 100 ms without a clear, stable reading resets the window. Scoring uses the detector’s filtered pitch and the window’s median, so isolated harmonic glitches do not produce wrong attempts. Practice also requires a pick onset and a match within 50 cents of the exact target octave. Noise, brief bursts and gliding pitches cannot advance the cards. These are pitch-based checks, not a guitar-versus-voice classifier: a deliberately held, steady sung note can resemble an instrument.
+
+Lessons and the intro keep green feedback until you press Next. Songs show Right! briefly, then automatically advance within a phrase; Pause/Resume is available during play. Every phrase ends at a result with notes right / attempts, Try again and Next. Whole song plays one phrase at a time; result Next starts the following phrase, or returns Home after the final phrase. Lesson drill cards are presented once; musical repeated notes remain separate picks. Skip jumps past adjacent identical targets and crosses into the next exercise when needed; only the end of the lesson shows the final lesson result. Completed lessons and the intro can be replayed from Today without clearing saved progress.
+
+The tuner shows string names, tightening/loosening directions and all six session checkmarks. In tune requires 500 ms within ±5 cents of the open string, with good clarity. A note is marked stopped too fast only after a confirmed early disappearance near the noise floor within 150 ms; normal slow decay is accepted. Retry clears attack and decay state. Pure gates and progression live in `practice.js` and are tested in Node.
+
+Place the phone 30–50 cm from the amp speaker with its bottom microphone facing the amp. Use the clean channel at low-to-medium volume. Keep the phone off the amp and away from talking or TV.
 
 Browsers and devices may decline requested microphone constraints. The displayed applied-settings line is authoritative.
 

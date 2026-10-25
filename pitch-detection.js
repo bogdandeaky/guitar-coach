@@ -76,7 +76,7 @@ class PitchDetector {
    * YIN cumulative mean normalized difference.
    */
   yin(buffer) {
-    const minLag = Math.floor(this.sampleRate / 1100);
+    const minLag = Math.floor(this.sampleRate / 1400);
     const maxLag = Math.min(
       Math.floor(this.sampleRate / 65),
       Math.floor(buffer.length / 2)
@@ -195,6 +195,7 @@ class PitchDetector {
 
     return {
       frequency: this.stabilizeFrequency(result.frequency),
+      rawFrequency: result.frequency,
       clarity: result.clarity,
       rms,
       onset,
@@ -258,7 +259,7 @@ class NoteDetector {
     }, null);
   }
 
-  matchesNote(frequency, note, octave, toleranceCents = 60, allowOctave = true) {
+  matchesNote(frequency, note, octave, toleranceCents = 60, allowOctave = false) {
     const expected = this.frequencyFor(note, octave);
     if (!expected || !frequency) return false;
     let cents = 1200 * Math.log2(frequency / expected);

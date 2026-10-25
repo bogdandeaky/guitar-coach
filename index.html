@@ -39,6 +39,7 @@
       <h1 id="home-greeting">Ready to play?</h1>
       <article id="next-lesson-card" class="hero-card"></article>
       <button id="start-session" class="primary-button">Start today’s session</button>
+      <button id="replay-intro" class="secondary-button">Replay intro</button><div id="learning-steps" class="stack-list"></div>
       <div class="menu-grid">
         <button id="open-tuner" class="menu-card"><span>◎</span><strong>Tuner</strong><small>Auto-detect strings</small></button>
         <button id="open-songs" class="menu-card"><span>♪</span><strong>Play songs</strong><small id="songs-status">Unlock after lesson 4</small></button>
@@ -54,11 +55,11 @@
         <strong>Simple amp setup</strong>
         <ul>
           <li>Clean channel, pedal off</li>
-          <li>Low volume</li>
-          <li>Phone 0.5–1 m away, off to the side</li>
+          <li>Low-to-medium volume</li>
+          <li>Place the phone 30–50 cm from the amp speaker, bottom edge (microphone) facing the amp. Keep it off the amp and away from talking or TV.</li>
         </ul>
       </div>
-      <p>Pick any string a few times.</p>
+      <p>Pick one open string and let it ring. Talking or tapping won't count.</p>
       <div class="level-track" aria-label="Input level"><div id="level-fill"></div><span class="green-zone"></span></div>
       <p id="level-message" class="status-line">Listening for the room…</p>
       <p id="mic-settings" class="technical-note"></p>
@@ -74,6 +75,7 @@
         <div id="tuner-cents" class="cents">Play a clear note</div>
         <div id="tuner-string" class="string-pill">String 1 is the thin high E</div>
       </article>
+      <div id="tuned-strings" class="stack-list"></div>
       <p id="tuner-message" class="status-line">Listening…</p>
       <button id="tuner-continue" class="primary-button">Continue</button>
       <button id="tuner-skip" class="text-button">Skip tuning</button>
@@ -96,6 +98,7 @@
         <div id="lesson-feedback" class="feedback neutral">Pick once when ready</div>
       </article>
       <div class="lesson-actions">
+        <button id="lesson-next" class="primary-button" disabled>Next</button>
         <button id="retry-note" class="secondary-button">Retry</button>
         <button id="skip-note" class="text-button">Skip this card</button>
       </div>
@@ -122,12 +125,13 @@
         <div id="play-feedback" class="feedback neutral">Press play when ready</div>
       </article>
       <label class="range-row">Tempo <input id="tempo" type="range" min="45" max="100" value="70"><output id="tempo-output">70 BPM</output></label>
-      <label class="toggle-row"><input id="wait-mode" type="checkbox" checked> Wait for me</label>
+      <p class="thin-e-reminder">Play each note as it appears. We wait for your pick; each phrase ends with a result.</p>
       <label class="range-row">Phrase loop
         <select id="phrase-loop"><option value="all">Whole song</option></select>
       </label>
       <div class="play-actions">
-        <button id="play-toggle" class="primary-button">Play with count-in</button>
+        <button id="play-toggle" class="primary-button">Play</button>
+        <button id="song-next" class="primary-button hidden" disabled>Next</button>
         <button id="play-retry" class="secondary-button">Retry phrase</button>
       </div>
     </section>
@@ -152,8 +156,11 @@
       <h1 id="achievement-title">Nice work</h1>
       <p id="achievement-body" class="lede"></p>
       <article id="next-session" class="hero-card"></article>
+      <button id="result-retry" class="secondary-button">Try again</button>
+      <button id="result-next" class="primary-button">Next</button>
       <button id="achievement-home" class="primary-button">See next session</button>
     </section>
+    <p class="note-help">Note names like E2/E4: the letter is the note, the number is the octave; it goes up by one after each C.</p>
   </main>
 
   <div id="resume-overlay" class="overlay hidden" role="dialog" aria-modal="true">
@@ -164,6 +171,7 @@
   <script src="tab-parser.js"></script>
   <script src="songs.js"></script>
   <script src="learning-path.js"></script>
+  <script src="practice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

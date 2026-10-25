@@ -133,3 +133,15 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
   .import-form textarea { min-height: 110px; }
   .count-in { font-size: 84px; }
 }
+.pick-illustration { margin: 18px 0; }
+.pick-illustration svg { display: block; width: 100%; height: auto; }
+.pick-illustration figcaption, .note-help { color: var(--muted); font-size: 16px; line-height: 1.5; }
+.detected-note { font-size: clamp(28px, 7vw, 44px); letter-spacing: -.02em; }
+.scientific-note, .note-directions .scientific-note { display: block; font-size: 18px; color: var(--muted); margin-top: 10px; }
+.note-directions { grid-template-columns: 2fr 1fr 1fr; }
+.note-directions strong { font-size: clamp(19px, 5vw, 28px); overflow-wrap: anywhere; }
+.tune-direction { font-size: 28px; font-weight: 900; min-height: 72px; }
+.tuned { color: var(--green); }
+#first-level-fill { height: 100%; }
+#tuned-strings, #first-tuned-list { font-size: 18px; line-height: 1.9; }
+.feedback { font-size: 18px; }
