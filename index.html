@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10211c">
+  <title>Pick & Play — Guitar practice</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2216%22 fill=%22%23b8f36b%22/><text x=%2232%22 y=%2244%22 text-anchor=%22middle%22 font-size=%2240%22 font-family=%22sans-serif%22 font-weight=%22900%22 fill=%22%2310200d%22>P</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <button id="home-button" class="icon-button hidden" aria-label="Go home">←</button>
+      <a class="brand" href="./" aria-label="Pick and Play home">
+        <span class="brand-mark">P</span>
+        <span>Pick &amp; Play</span>
+      </a>
+      <span id="profile-chip" class="profile-chip hidden"></span>
+    </header>
+
+    <section id="onboarding-screen" class="screen">
+      <div id="onboarding-content"></div>
+      <button id="onboarding-next" class="primary-button">Let’s start</button>
+    </section>
+
+    <section id="profile-screen" class="screen hidden">
+      <p class="eyebrow">First win saved</p>
+      <h1>Who’s playing?</h1>
+      <p class="lede">Pick a local profile. Nothing leaves this device.</p>
+      <div class="profile-grid">
+        <button class="profile-card" data-profile="Bogdan"><span>🎸</span><strong>Bogdan</strong></button>
+        <button class="profile-card" data-profile="Aron"><span>⚡</span><strong>Aron</strong></button>
+      </div>
+    </section>
+
+    <section id="home-screen" class="screen hidden">
+      <p class="eyebrow">Today · about 5 minutes</p>
+      <h1 id="home-greeting">Ready to play?</h1>
+      <article id="next-lesson-card" class="hero-card"></article>
+      <button id="start-session" class="primary-button">Start today’s session</button>
+      <div class="menu-grid">
+        <button id="open-tuner" class="menu-card"><span>◎</span><strong>Tuner</strong><small>Auto-detect strings</small></button>
+        <button id="open-songs" class="menu-card"><span>♪</span><strong>Play songs</strong><small id="songs-status">Unlock after lesson 4</small></button>
+        <button id="open-my-songs" class="menu-card"><span>＋</span><strong>My songs</strong><small>Paste ASCII tab</small></button>
+        <button id="switch-profile" class="menu-card"><span>↔</span><strong>Switch player</strong><small>Local profiles</small></button>
+      </div>
+    </section>
+
+    <section id="sound-screen" class="screen hidden">
+      <p class="eyebrow">Step 1 of 3</p>
+      <h1>Turn up and play</h1>
+      <div class="hint-card">
+        <strong>Simple amp setup</strong>
+        <ul>
+          <li>Clean channel, pedal off</li>
+          <li>Low volume</li>
+          <li>Phone 0.5–1 m away, off to the side</li>
+        </ul>
+      </div>
+      <p>Pick any string a few times.</p>
+      <div class="level-track" aria-label="Input level"><div id="level-fill"></div><span class="green-zone"></span></div>
+      <p id="level-message" class="status-line">Listening for the room…</p>
+      <p id="mic-settings" class="technical-note"></p>
+      <button id="sound-continue" class="primary-button" disabled>Continue to tuner</button>
+    </section>
+
+    <section id="tuner-screen" class="screen hidden">
+      <p id="tuner-step" class="eyebrow">Auto tuner</p>
+      <h1 id="tuner-target">Pick any string</h1>
+      <article class="tuner-card">
+        <div id="tuner-note" class="detected-note">—</div>
+        <div class="tuner-gauge"><div class="gauge-center"></div><div id="tuner-needle"></div></div>
+        <div id="tuner-cents" class="cents">Play a clear note</div>
+        <div id="tuner-string" class="string-pill">String 1 is the thin high E</div>
+      </article>
+      <p id="tuner-message" class="status-line">Listening…</p>
+      <button id="tuner-continue" class="primary-button">Continue</button>
+      <button id="tuner-skip" class="text-button">Skip tuning</button>
+    </section>
+
+    <section id="lesson-screen" class="screen hidden">
+      <div class="lesson-meta"><span id="lesson-step"></span><span id="lesson-time">≈ 5 min</span></div>
+      <h1 id="lesson-title"></h1>
+      <div id="lesson-tip" class="hint-card"></div>
+      <div id="count-in" class="count-in hidden"></div>
+      <article id="note-card" class="note-card">
+        <p id="note-instruction" class="eyebrow"></p>
+        <div class="note-directions">
+          <div><small>STRING</small><strong id="card-string"></strong></div>
+          <div><small>FRET</small><strong id="card-fret"></strong></div>
+          <div><small>FINGER</small><strong id="card-finger"></strong></div>
+        </div>
+        <p class="thin-e-reminder">String 1 = thin high E</p>
+        <div id="mini-fretboard" class="mini-fretboard"></div>
+        <div id="lesson-feedback" class="feedback neutral">Pick once when ready</div>
+      </article>
+      <div class="lesson-actions">
+        <button id="retry-note" class="secondary-button">Retry</button>
+        <button id="skip-note" class="text-button">Skip this card</button>
+      </div>
+    </section>
+
+    <section id="songs-screen" class="screen hidden">
+      <p class="eyebrow">Performance practice</p>
+      <h1>Choose a song</h1>
+      <p class="lede">Single notes only. Start slowly and use wait-for-me.</p>
+      <div id="built-in-song-list" class="stack-list"></div>
+    </section>
+
+    <section id="play-screen" class="screen hidden">
+      <div class="lesson-meta"><span id="play-title"></span><span id="play-progress"></span></div>
+      <div id="play-count-in" class="count-in hidden"></div>
+      <div id="rhythm-track" class="rhythm-track"></div>
+      <article class="play-card">
+        <div class="note-directions">
+          <div><small>STRING</small><strong id="play-string"></strong></div>
+          <div><small>FRET</small><strong id="play-fret"></strong></div>
+          <div><small>NOTE</small><strong id="play-note"></strong></div>
+        </div>
+        <p id="play-duration" class="thin-e-reminder"></p>
+        <div id="play-feedback" class="feedback neutral">Press play when ready</div>
+      </article>
+      <label class="range-row">Tempo <input id="tempo" type="range" min="45" max="100" value="70"><output id="tempo-output">70 BPM</output></label>
+      <label class="toggle-row"><input id="wait-mode" type="checkbox" checked> Wait for me</label>
+      <label class="range-row">Phrase loop
+        <select id="phrase-loop"><option value="all">Whole song</option></select>
+      </label>
+      <div class="play-actions">
+        <button id="play-toggle" class="primary-button">Play with count-in</button>
+        <button id="play-retry" class="secondary-button">Retry phrase</button>
+      </div>
+    </section>
+
+    <section id="my-songs-screen" class="screen hidden">
+      <p class="eyebrow">Secondary practice</p>
+      <h1>My songs</h1>
+      <div id="custom-song-list" class="stack-list"></div>
+      <button id="show-import" class="secondary-button">Paste a tab</button>
+      <form id="import-form" class="import-form hidden">
+        <label>Song title<input id="import-title" required maxlength="80" placeholder="My song"></label>
+        <label>ASCII guitar tab<textarea id="import-tab" required rows="10" spellcheck="false" placeholder="e|--0--1--3--&#10;B|-----------&#10;G|-----------&#10;D|-----------&#10;A|-----------&#10;E|-----------"></textarea></label>
+        <p class="technical-note">Techniques such as h, p, /, \\ and ~ are ignored. Chords become one high note.</p>
+        <p id="import-error" class="error-text"></p>
+        <button class="primary-button" type="submit">Import song</button>
+      </form>
+    </section>
+
+    <section id="achievement-screen" class="screen hidden achievement">
+      <div class="achievement-icon">✓</div>
+      <p class="eyebrow">Session complete</p>
+      <h1 id="achievement-title">Nice work</h1>
+      <p id="achievement-body" class="lede"></p>
+      <article id="next-session" class="hero-card"></article>
+      <button id="achievement-home" class="primary-button">See next session</button>
+    </section>
+  </main>
+
+  <div id="resume-overlay" class="overlay hidden" role="dialog" aria-modal="true">
+    <div class="dialog"><h2>Practice paused</h2><p>An interruption paused listening.</p><button id="resume-button" class="primary-button">Resume explicitly</button></div>
+  </div>
+
+  <script src="pitch-detection.js"></script>
+  <script src="tab-parser.js"></script>
+  <script src="songs.js"></script>
+  <script src="learning-path.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
