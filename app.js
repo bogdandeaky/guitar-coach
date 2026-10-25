@@ -2,6 +2,7 @@ class GuitarApp {
   constructor() {
     this.noteDetector = new NoteDetector();
     this.pitchDetector = new PitchDetector();
+    this.loadNoiseFloor();
     this.tabParser = new TabParser();
     this.audioContext = null;
     this.analyser = null;
@@ -35,6 +36,14 @@ class GuitarApp {
     window.__guitarApp = this;
   }
 
+  loadNoiseFloor() {
+    const stored = localStorage.getItem('noiseFloor');
+    const value = stored === null || stored.trim() === '' ? NaN : Number(stored);
+    this.pitchDetector.noiseFloor = Number.isFinite(value) ? Math.min(0.02, Math.max(0.0015, value)) : 0.003;
+    if (stored !== null) localStorage.setItem('noiseFloor', String(this.pitchDetector.noiseFloor));
+    this.pitchDetector.resetTracking();
+  }
+
   cacheElements() {
     this.screens = [...document.querySelectorAll('.screen')];
     const ids = [
@@ -63,6 +72,7 @@ class GuitarApp {
     this.el['open-settings'].onclick = () => this.show('settings');
     this.el['redo-sound-check'].onclick = () => {
       localStorage.setItem('soundCheckDone', 'false');
+      this.calibrated = false;
       return this.beginDailySession('home');
     };
     this.el['pause-practice'].onclick = () => {
@@ -144,6 +154,11 @@ class GuitarApp {
 
   show(name) {
     this.beginOperation();
+    if (this.currentScreen === 'onboarding' && name !== 'onboarding' &&
+        FIRST_RUN[this.firstRunStep]?.type === 'win' && this.practiceKind === 'intro') {
+      this.session = null;
+      this.practiceKind = null;
+    }
     this.currentScreen = name;
     this.el['pause-practice'].classList.toggle('hidden', !(name === 'lesson' || (name === 'onboarding' && FIRST_RUN[this.firstRunStep]?.type === 'phrase')));
     this.screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== `${name}-screen`));
@@ -288,6 +303,7 @@ class GuitarApp {
       }
       if (this.pitchDetector.sampleRate !== this.audioContext.sampleRate) {
         this.pitchDetector = new PitchDetector(this.audioContext.sampleRate);
+        this.loadNoiseFloor();
         this.calibrated = false;
       }
       if (!this.stream) {
@@ -364,6 +380,7 @@ class GuitarApp {
     if (!completed || !this.operationActive(operation) || this.analyser !== analyser) return false;
     this.calibrationDetector = null;
     detector.finishCalibration();
+    localStorage.setItem('noiseFloor', String(detector.noiseFloor));
     this.calibrated = true;
     return true;
   }
@@ -489,7 +506,8 @@ class GuitarApp {
   }
 
   resumePractice() {
-    if (this.session.state === 'playing') this.preparePracticeCard();
+    if (this.exerciseTransition) this.practiceResult();
+    else if (this.session.state === 'playing') this.preparePracticeCard();
     else if (['feedback', 'result'].includes(this.session.state)) this.scheduleSongAdvance();
   }
 
@@ -518,7 +536,7 @@ class GuitarApp {
     this.el['lesson-title'].textContent = this.lesson.title;
     this.el['lesson-tip'].textContent = this.lesson.tip;
     this.el['note-instruction'].textContent = exercise.instruction;
-    this.el['card-string'].textContent = stringLabel(target.string);
+    this.el['card-string'].textContent = `String ${target.string}, ${target.fret === 0 ? 'open' : `fret ${target.fret}`}`;
     const info = this.noteDetector.noteAt(target.string, target.fret);
     const small = document.createElement('small');
     small.className = 'scientific-note';
@@ -564,11 +582,6 @@ class GuitarApp {
     this.preparePracticeCard();
   }
 
-  completeLesson() {
-    if (this.exerciseResults.every(Boolean)) this.progress.complete(this.lesson.id);
-    this.goHome();
-  }
-
   setFeedback(element, type, text) {
     element.className = `feedback ${type}`;
     element.textContent = text;
@@ -579,7 +592,7 @@ class GuitarApp {
     BUILTIN_SONGS.forEach(song => {
       const button = document.createElement('button');
       button.className = 'song-row';
-      button.innerHTML = `<div><strong>${song.title}</strong><small>${song.description} · ${song.bpm} BPM</small></div><span>›</span>`;
+      button.innerHTML = `<div><strong>${song.title}</strong><small>${({beginner:'★ Easy',intermediate:'★★ Medium',harder:'★★★ Harder'})[song.difficulty]} · ${song.description} · ${song.bpm} BPM</small></div><span>›</span>`;
       button.addEventListener('click', () => this.openSong(song));
       this.el['built-in-song-list'].appendChild(button);
     });
@@ -669,7 +682,10 @@ class GuitarApp {
     const note = this.song.notes[this.songIndex];
     this.el['play-title'].textContent = this.song.title;
     this.renderSongProgress();
-    this.el['play-string'].textContent = stringLabel(note.string);
+    this.el['play-string'].textContent = `String ${note.string}, ${note.fret === 0 ? 'open' : `fret ${note.fret}`}`;
+    const name = document.createElement('small');
+    name.className = 'scientific-note'; name.textContent = `${note.note}${note.octave}`;
+    this.el['play-string'].appendChild(name);
     this.el['play-fret'].textContent = note.fret;
     this.el['play-note'].textContent = `${note.note}${note.octave}`;
     this.el['play-note'].classList.add('scientific-note');
@@ -729,12 +745,13 @@ class GuitarApp {
     const session = this.session;
     const screen = this.currentScreen;
     const generation = this.countInGeneration;
+    this.practiceFeedback()?.classList.add('right-flash');
     this.songAdvanceTimer = setTimeout(() => {
       if (generation !== this.countInGeneration) return;
       this.songAdvanceTimer = null;
       if ((this.practiceKind === 'song' && !this.playing) || this.practicePaused || this.currentScreen !== screen || this.session !== session) return;
       this.nextPracticeCard();
-    }, 180);
+    }, 600);
   }
 
   runSongInput() { this.runPracticeInput(); }
@@ -802,6 +819,9 @@ class GuitarApp {
     if (this.countInResolve) { this.countInResolve(); this.countInResolve = null; }
     clearTimeout(this.songAdvanceTimer);
     this.songAdvanceTimer = null;
+    if (this.session) this.practiceFeedback()?.classList.remove('right-flash');
+    clearTimeout(this.exerciseTransitionTimer);
+    this.exerciseTransitionTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
   }
@@ -890,14 +910,26 @@ class GuitarApp {
   }
 
   pickDrawing() {
-    return `<figure class="pick-illustration hint-card"><svg viewBox="0 0 520 400" role="img" aria-label="Pick held between thumb pad and side of curled index finger, with 2–3 mm of tip exposed and a slight tilt toward the strings">
-      <g stroke="#b8c8bc" stroke-width="3"><path d="M45 315H475M45 337H475M45 359H475"/></g>
-      <path d="M150 180 Q105 120 150 90 Q190 65 235 100 L298 157 Q325 192 300 228 Q263 260 226 225 L189 185 Q178 169 190 157 Q204 144 219 161 L254 193" fill="#b98c69" stroke="#ffe0b7" stroke-width="4"/>
-      <path d="M221 179 Q245 151 288 173 Q303 185 293 204 L266 268 Q254 282 248 263Z" fill="#ffc963" stroke="#382810" stroke-width="4"/>
-      <path d="M104 220 Q100 184 146 176 L245 172 Q280 174 278 198 Q275 219 244 224 L164 240 Q126 250 104 220Z" fill="#e2b18a" stroke="#ffe0b7" stroke-width="4"/>
-      <g fill="none" stroke="#f4f5eb" stroke-width="2"><path d="M64 257L150 220M370 66L260 128M389 260L265 269M400 383L430 337"/><path d="M290 288Q320 278 316 246"/><path d="M257 284V305l-7-8m7 8 7-8"/></g>
-      <g fill="#f4f5eb" font-family="sans-serif" font-size="21"><text x="12" y="282">Thumb pad</text><text x="270" y="36">Curled index</text><text x="295" y="61">finger side</text><text x="324" y="239">Pick tip</text><text x="324" y="264">2–3 mm</text><text x="328" y="300">Angle: 10–20°</text><text x="350" y="397">Strings</text></g>
-    </svg><figcaption>Rest the pick on the side of your curled index finger. Cover it with your thumb pad. Point the exposed tip toward the strings, with a slight tilt (about 10–20°).</figcaption></figure>`;
+    return `<figure class="pick-illustration hint-card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 540" width="100%" role="img" aria-labelledby="grip-title">
+  <title id="grip-title">Player's view of holding a guitar pick</title>
+  <rect width="520" height="540" rx="20" fill="#1f3a33"/>
+  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
+    <text x="24" y="38"><tspan x="24">Pick between thumb pad and side </tspan><tspan x="24" dy="29">of curled index finger</tspan></text>
+  </g>
+  <!-- Curled index below the thumb, viewed from the player's side. -->
+  <path d="M96 240 C63 187 92 134 148 127 C202 119 259 145 291 181 C321 217 304 262 268 275 C228 289 190 266 180 234 L201 211 C217 240 254 245 265 222 C279 195 225 163 188 170 C158 175 159 206 175 222Z" fill="#bc8b68" stroke="#efc7a4" stroke-width="4"/>
+  <!-- The covered pick body lies between finger and thumb. -->
+  <path d="M218 197 Q247 182 275 201 Q285 210 275 230 L251 286 Q247 294 241 283 L211 225 Q203 207 218 197Z" fill="#f4c65e" stroke="#584422" stroke-width="4"/>
+  <path d="M58 229 C61 196 96 182 133 185 L235 187 C264 187 279 204 270 224 C264 238 246 243 220 245 L135 261 C97 267 67 256 58 229Z" fill="#e2b18a" stroke="#f5d2b3" stroke-width="4"/>
+  <path d="M218 199 Q242 193 252 204" fill="none" stroke="#bd8866" stroke-width="3"/>
+  <g stroke="#b8c8bc" stroke-width="3"><path d="M36 322H484 M36 342H484 M36 362H484"/></g>
+  <path d="M257 286 L296 280" fill="none" stroke="#f4f5eb" stroke-width="2"/>
+  <path d="M248 297 L252 315 M246 310 L252 315 L256 308" fill="none" stroke="#f4f5eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
+    <text x="306" y="268"><tspan x="306">Only the tip shows</tspan><tspan x="306" dy="29">(2-3 mm)</tspan></text>
+    <text x="24" y="478"><tspan x="24">Point it at the strings, </tspan><tspan x="24" dy="29">slightly angled</tspan></text>
+  </g>
+</svg><figcaption>Rest the pick on your curled index finger, then cover it with your thumb pad. Keep your grip relaxed.</figcaption></figure>`;
   }
 
   listenForSound(fill, message, button) {
@@ -932,6 +964,7 @@ class GuitarApp {
     this.el['pause-practice'].textContent = 'Pause';
     this.practiceKind = kind;
     this.session = new PracticeSession(cards);
+    this.exerciseTransition = false;
     this.preparePracticeCard();
   }
 
@@ -981,11 +1014,11 @@ class GuitarApp {
       const result = this.attempt.update(this.readAnalysis(), performance.now(), this.noteDetector.frequencyFor(info.note, info.octave), this.pitchDetector.noiseFloor);
       if (result) {
         const right = result.type === 'right';
-        this.session.record(right);
+        if (right || result.type === 'wrong') this.session.record(right);
         if (right && this.practiceKind === 'song') { this.songResults[this.songIndex] = 'hit'; this.renderSongProgress(); }
         const heard = result.frequency ? this.noteDetector.frequencyToNote(result.frequency).fullName : 'unclear sound';
-        const message = right ? 'Right!' : result.type === 'muted' ? 'The note stopped too fast. Let it ring.' : `Not quite - that was ${heard}, try string ${target.string} fret ${target.fret}`;
-        this.setFeedback(this.practiceFeedback(), right ? 'success' : 'error', message);
+        const message = right ? 'Right!' : result.type === 'muted' ? 'The note stopped too fast. Let it ring.' : result.type === 'unclear' ? "Didn't hear that clearly. Pick again and let it ring." : `Not quite - that was ${heard}, try string ${target.string} fret ${target.fret}`;
+        this.setFeedback(this.practiceFeedback(), right ? 'success' : result.type === 'wrong' ? 'error' : 'neutral', message);
         if (right) {
           this.scheduleSongAdvance();
           return;
@@ -1014,13 +1047,31 @@ class GuitarApp {
   practiceResult() {
     this.stopLoop();
     this.playing = false;
-    this.show('achievement');
-    const score = {right:this.session.right,total:this.session.cards.length,attempts:this.session.attempts};
+    let score = {right:this.session.right,total:this.session.cards.length,attempts:this.session.attempts};
     const lessonEnd = this.practiceKind === 'lesson' && this.exerciseIndex === this.lesson.exercises.length - 1;
-    if (this.practiceKind === 'lesson') this.saveExerciseScore();
+    if (this.practiceKind === 'lesson') {
+      this.saveExerciseScore();
+      if (!lessonEnd) {
+        this.exerciseTransition = true;
+        this.setFeedback(this.practiceFeedback(), 'success', `✓ ${score.right}/${score.total}`);
+        const generation = this.countInGeneration;
+        const session = this.session;
+        this.exerciseTransitionTimer = setTimeout(() => {
+          if (generation !== this.countInGeneration || this.session !== session || this.currentScreen !== 'lesson') return;
+          this.exerciseIndex++;
+          this.startExercise();
+        }, 1000);
+        return;
+      }
+      score = this.exerciseScores.reduce((sum, ex) => ({right:sum.right+ex.right,total:sum.total+ex.total,attempts:sum.attempts+ex.attempts}), {right:0,total:0,attempts:0});
+      this.lessonPassed = score.total > 0 && score.right / score.total >= 0.8;
+      if (this.lessonPassed) this.progress.complete(this.lesson.id);
+    }
+    this.show('achievement');
     this.el['result-whole-song'].classList.add('hidden');
     document.getElementById('result-next').classList.remove('hidden');
     document.getElementById('result-next').textContent = 'Next';
+    document.getElementById('result-retry').className = 'secondary-button';
     this.el['achievement-title'].textContent = lessonEnd ? 'Lesson result' : 'Practice result';
     this.el['achievement-body'].textContent = `${score.right}/${score.total} notes right · ${score.attempts} attempts. ${score.right === score.total ? 'Well done!' : 'You can try again or continue.'}`;
     this.el['next-session'].textContent = 'Try again, or press Next when you are ready.';
@@ -1036,6 +1087,15 @@ class GuitarApp {
       document.getElementById('result-next').disabled = !this.wholeSong && part === ranges.length - 1;
       this.el['result-whole-song'].classList.toggle('hidden', this.wholeSong);
     } else document.getElementById('result-next').disabled = false;
+    if (lessonEnd) {
+      const next = LEARNING_PATH[LEARNING_PATH.findIndex(item => item.id === this.lesson.id) + 1];
+      this.el['achievement-title'].textContent = this.lessonPassed ? 'Nice work!' : 'Almost!';
+      this.el['achievement-body'].textContent = `${score.right}/${score.total} notes right · ${score.attempts} attempts.`;
+      this.el['next-session'].textContent = this.lessonPassed ? (next ? `Next up: ${next.title}` : 'All lessons done — try a song!') : 'Try again to unlock the next one';
+      document.getElementById('result-next').textContent = 'Keep going';
+      document.getElementById('result-next').classList.toggle('hidden', !this.lessonPassed);
+      document.getElementById('result-retry').className = this.lessonPassed ? 'secondary-button' : 'primary-button';
+    }
     this.el['achievement-home'].textContent = 'Home';
     this.el['achievement-home'].classList.toggle('hidden', !this.profile);
   }
@@ -1049,6 +1109,7 @@ class GuitarApp {
     if (!this.operationActive(operation)) return;
     if (!ok) return;
     if (kind === 'intro') { this.renderFirstRun(); return; }
+    if (kind === 'lesson') { this.selectedLesson = this.lesson; this.startLesson(); return; }
     this.show(kind === 'song' ? 'play' : 'lesson');
     if (kind === 'song') this.resetSongPhrase();
     this.startPractice(cards, kind);
@@ -1056,7 +1117,13 @@ class GuitarApp {
 
   async finishPracticeResult() {
     if (this.session.state !== 'result') return;
-    if (this.practiceKind === 'lesson') this.exerciseResults[this.exerciseIndex] = this.session.right === this.session.cards.length;
+    if (this.practiceKind === 'lesson') {
+      if (!this.lessonPassed) return this.retryPractice();
+      const next = LEARNING_PATH[LEARNING_PATH.findIndex(item => item.id === this.lesson.id) + 1];
+      if (!next) { this.show('songs'); return; }
+      this.selectedLesson = next;
+      return this.beginDailySession();
+    }
     this.session.next();
     if (this.practiceKind === 'intro') {
       if (FIRST_RUN[this.firstRunStep + 1]?.type === 'phrase') {
@@ -1081,13 +1148,6 @@ class GuitarApp {
       this.resetSongPhrase();
       this.startPractice(this.song.notes.slice(...this.songRange), 'song');
     }
-    else if (++this.exerciseIndex < this.lesson.exercises.length) {
-      const operation = this.beginOperation();
-      const ok = await this.setupAudio(operation);
-      if (!this.operationActive(operation)) return;
-      if (!ok) return;
-      this.show('lesson'); this.startExercise();
-    } else this.completeLesson();
   }
 
   beginTunerTracking() {

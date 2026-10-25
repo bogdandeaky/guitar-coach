@@ -156,3 +156,9 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 }
 
 #song-progress-bar { width: 100%; height: 14px; accent-color: var(--green); }
+
+/* One clear target line, with its note name underneath. */
+.note-directions:has(#card-string), .note-directions:has(#play-string) { grid-template-columns: 1fr; }
+.note-card:has(.right-flash), .play-card:has(.right-flash) { background: #285c3d; box-shadow: 0 0 0 3px var(--green); }
+.pick-illustration { min-width: 0; }
+.pick-illustration figcaption { overflow-wrap: break-word; }

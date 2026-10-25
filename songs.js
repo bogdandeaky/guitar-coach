@@ -76,9 +76,9 @@ const BUILTIN_SONGS = [
   {
   "id": "smoke-on-the-water",
   "title": "Smoke on the Water",
-  "difficulty": "beginner",
+  "difficulty": "intermediate",
   "bpm": 65,
-  "description": "Easy single-string riff; move your hand gently between frets.",
+  "description": "Single-string riff on string 3, reaching fret 6.",
   "notes": [
     {
       "string": 3,
@@ -181,9 +181,9 @@ const BUILTIN_SONGS = [
   {
   "id": "iron-man",
   "title": "Iron Man",
-  "difficulty": "beginner",
+  "difficulty": "harder",
   "bpm": 65,
-  "description": "Easy single-string riff; move your hand gently between frets.",
+  "description": "Low E riff on frets 7-15, with wider hand shifts.",
   "notes": [
     {
       "string": 6,

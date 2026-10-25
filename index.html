@@ -94,9 +94,9 @@
       <article id="note-card" class="note-card">
         <p id="note-instruction" class="eyebrow"></p>
         <div class="note-directions">
-          <div><small>STRING</small><strong id="card-string"></strong></div>
-          <div><small>FRET</small><strong id="card-fret"></strong></div>
-          <div><small>FINGER</small><strong id="card-finger"></strong></div>
+          <div><small>PLAY</small><strong id="card-string"></strong></div>
+          <div class="hidden"><small></small><strong id="card-fret"></strong></div>
+          <div class="hidden"><small></small><strong id="card-finger"></strong></div>
         </div>
         <p class="thin-e-reminder">String 1 = thin high E</p>
         <div id="mini-fretboard" class="mini-fretboard"></div>
@@ -125,9 +125,9 @@
       <div id="rhythm-track" class="rhythm-track"></div>
       <article class="play-card">
         <div class="note-directions">
-          <div><small>STRING</small><strong id="play-string"></strong></div>
-          <div><small>FRET</small><strong id="play-fret"></strong></div>
-          <div><small>NOTE</small><strong id="play-note"></strong></div>
+          <div><small>PLAY</small><strong id="play-string"></strong></div>
+          <div class="hidden"><small></small><strong id="play-fret"></strong></div>
+          <div class="hidden"><small></small><strong id="play-note"></strong></div>
         </div>
         <p id="play-duration" class="thin-e-reminder"></p>
         <div id="play-feedback" class="feedback neutral">Press play when ready</div>
@@ -167,9 +167,9 @@
       <button id="result-retry" class="secondary-button">Try again</button>
       <button id="result-whole-song" class="secondary-button hidden">Play whole song</button>
       <button id="result-next" class="primary-button">Next</button>
-      <button id="achievement-home" class="primary-button">See next session</button>
+      <button id="achievement-home" class="secondary-button">See next session</button>
     </section>
-    <p class="note-help">Note names like E2/E4: the letter is the note, the number is the octave; it goes up by one after each C.</p>
+    <p class="note-help">The letter is the note name; the number is which octave (how high).<br>Notes go C D E F G A B, then C starts the next octave, so the number goes up at C.</p>
   </main>
 
   <div id="resume-overlay" class="overlay hidden" role="dialog" aria-modal="true">

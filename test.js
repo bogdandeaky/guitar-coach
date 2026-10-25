@@ -330,10 +330,11 @@ test('replaying completed lessons preserves saved progress', () => {
 });
 
 
-function appHarness() {
+function appHarness(initialStorage = {}) {
   const vm = require('node:vm');
   const fs = require('node:fs');
   const elements = new Map();
+  const missingIds = new Set();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       id, style: {}, dataset: {}, children: [], disabled: false, value: '70',
@@ -348,21 +349,21 @@ function appHarness() {
   let scheduled;
   const timers = new Map();
   let timerId = 0;
-  const storage = new Map();
+  const storage = new Map(Object.entries(initialStorage));
   const context = vm.createContext({
     console, Float32Array,
-    setTimeout: fn => { timers.set(++timerId, fn); return timerId; },
+    setTimeout: (fn, delay) => { fn.delay = delay; timers.set(++timerId, fn); return timerId; },
     clearTimeout: id => timers.delete(id),
     performance: { now: () => now },
-    localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
-    document: { getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol()), createTextNode: text => ({textContent:text}), addEventListener() {} },
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
+    document: { getElementById: id => missingIds.has(id) ? null : element(id), querySelectorAll: () => [], createElement: () => element(Symbol()), createTextNode: text => ({textContent:text}), addEventListener() {} },
     window: { scrollTo() {} }, navigator: {},
     requestAnimationFrame: fn => { scheduled = fn; return 1; },
     cancelAnimationFrame: () => { scheduled = null; }
   });
   for (const file of ['pitch-detection.js', 'tab-parser.js', 'songs.js', 'learning-path.js', 'practice.js', 'app.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   const app = context.window.__guitarApp;
-  return { app, element, context, timers,
+  return { app, element, context, timers, missingIds,
     get pendingFrame() { return scheduled; },
     tick() { now += 20; const fn = scheduled; scheduled = null; assert.ok(fn, 'input loop scheduled'); fn(); },
     flushTimer() { const [id, fn] = timers.entries().next().value || []; assert.ok(fn, 'advance scheduled'); timers.delete(id); fn(); }
@@ -741,6 +742,15 @@ test('every restored intro step advances notes automatically and shows one resul
   }
   assert.equal(app.currentScreen, 'onboarding');
   assert.equal(app.firstRunStep, 5);
+  h.missingIds.add('first-feedback');
+  assert.equal(app.practiceFeedback(), null);
+  assert.doesNotThrow(() => app.scheduleSongAdvance());
+  assert.doesNotThrow(() => app.stopLoop());
+  await assert.doesNotReject(() => element('onboarding-next').onclick());
+  assert.equal(app.currentScreen, 'profile');
+  assert.equal(app.session, null);
+  assert.equal(app.practiceKind, null);
+  assert.equal(h.timers.size, 0);
 });
 
 test('all songs parse with playable notes and new melodies have verified opening pitches', () => {
@@ -889,6 +899,148 @@ test('calibration still finishes normally after 700ms', async () => {
   assert.equal(app.calibrated, true);
   assert.equal(app.calibrationRaf, null);
   assert.equal(app.calibrationResolve, null);
+});
+
+test('every built-in difficulty follows its maximum fret', () => {
+  for (const song of BUILTIN_SONGS) {
+    const max = Math.max(...song.notes.map(note => note.fret));
+    assert.equal(song.difficulty, max <= 5 ? 'beginner' : max <= 7 ? 'intermediate' : 'harder', song.title);
+  }
+});
+
+test('noise floor survives reload, clamps finite values and resets invalid saves', async () => {
+  for (const [stored, expected] of [[undefined,0.003],['0.009',0.009],['0',0.0015],['1',0.02],['NaN',0.003],['Infinity',0.003],['oops',0.003],['',0.003]]) {
+    const h = appHarness(stored === undefined ? {} : {noiseFloor:stored});
+    assert.equal(h.app.pitchDetector.noiseFloor, expected);
+    if (stored !== undefined) assert.equal(Number(h.context.localStorage.getItem('noiseFloor')), expected);
+  }
+  const h = appHarness({noiseFloor:'0.019'});
+  h.app.show('sound');
+  h.app.analyser = {getFloatTimeDomainData(buffer) {buffer.fill(0.004);}};
+  h.app.buffer = new Float32Array(4096);
+  const pending = h.app.calibrateNoiseFloor();
+  for (let i=0;i<35;i++) h.tick();
+  assert.equal(await pending, true);
+  const saved = h.context.localStorage.getItem('noiseFloor');
+  assert.ok(Math.abs(Number(saved) - 0.0088) < 0.00001);
+  assert.equal(appHarness({noiseFloor:saved}).app.pitchDetector.noiseFloor, Number(saved));
+});
+
+function lessonFixture(h, exerciseCount = 1) {
+  const {app} = h;
+  app.chooseProfile('QA');
+  app.analyser = {};
+  app.readAnalysis = () => ({frequency:null,clarity:0,rms:0});
+  const original = require('./learning-path').LEARNING_PATH[0];
+  const cards = Array.from({length:5}, (_,i) => ({string:1,fret:i}));
+  app.selectedLesson = {...original, exercises:Array.from({length:exerciseCount}, () => ({type:'phrase',notes:cards}))};
+  app.startLesson();
+}
+
+function finishCards(h, right) {
+  for (let i=0;i<5;i++) {
+    if (i < right) { h.app.session.record(true); h.app.scheduleSongAdvance(); h.flushTimer(); }
+    else h.app.advanceLessonCard();
+  }
+}
+
+test('80 percent saves before result, retries do not lower completion, and Home retains it', async () => {
+  for (const right of [3,4,5]) {
+    const h = appHarness(); lessonFixture(h);
+    // Wrong attempts are retryable and are not the completion denominator.
+    h.app.session.record(false); h.app.session.record(false);
+    finishCards(h, right);
+    assert.equal(h.app.currentScreen, 'achievement');
+    assert.equal(h.app.lessonPassed, right >= 4);
+    assert.equal(h.app.progress.completed.includes(h.app.lesson.id), right >= 4);
+    assert.equal(h.element('result-next').classList.contains('hidden'), right < 4);
+    if (right >= 4) {
+      const saved = JSON.parse(h.context.localStorage.getItem('guitar-progress-QA'));
+      assert.ok(saved.completed.includes(h.app.lesson.id));
+      assert.match(h.element('next-session').textContent, /^Next up:/);
+      h.app.setupAudio = async () => { h.app.analyser = {}; return true; };
+      h.context.localStorage.setItem('soundCheckDone','true');
+      await h.app.finishPracticeResult();
+      assert.equal(h.app.lesson.id, require('./learning-path').LEARNING_PATH[1].id);
+    } else assert.equal(h.element('next-session').textContent, 'Try again to unlock the next one');
+    h.app.goHome();
+    assert.equal(h.app.progress.completed.includes('open-strings'), right >= 4);
+  }
+  const h = appHarness(); lessonFixture(h);
+  h.app.progress.complete(h.app.lesson.id);
+  finishCards(h, 3);
+  assert.ok(h.app.progress.completed.includes(h.app.lesson.id));
+});
+
+test('multiple exercises flow inline and produce one combined lesson result', () => {
+  const h = appHarness(); lessonFixture(h, 2);
+  finishCards(h, 3);
+  assert.equal(h.app.currentScreen, 'lesson');
+  assert.match(h.app.practiceFeedback().textContent, /3\/5/);
+  assert.equal([...h.timers.values()][0].delay, 1000);
+  h.flushTimer();
+  assert.equal(h.app.exerciseIndex, 1);
+  finishCards(h, 5);
+  assert.equal(h.app.currentScreen, 'achievement');
+  assert.match(h.element('achievement-body').textContent, /8\/10 notes right/);
+  assert.ok(h.app.progress.completed.includes(h.app.lesson.id));
+  assert.equal(h.timers.size, 0);
+});
+
+test('inline transition and 600 ms green flash cannot advance after navigation or twice', () => {
+  const h = appHarness(); lessonFixture(h, 2);
+  h.app.session.record(true); h.app.scheduleSongAdvance();
+  const stale = [...h.timers.values()][0];
+  assert.equal(stale.delay, 600);
+  assert.equal(h.app.practiceFeedback().classList.contains('right-flash'), true);
+  h.app.scheduleSongAdvance();
+  assert.equal(h.timers.size, 1);
+  stale(); assert.equal(h.app.session.index, 0);
+  h.flushTimer(); assert.equal(h.app.session.index, 1);
+  for (let i=1;i<5;i++) { h.app.session.record(true); h.app.scheduleSongAdvance(); h.flushTimer(); }
+  const transition = [...h.timers.values()][0];
+  h.app.show('settings');
+  assert.equal(h.timers.size, 0);
+  transition(); assert.equal(h.app.exerciseIndex, 0);
+  assert.equal(h.app.currentScreen, 'settings');
+});
+
+test('unclear and stopped-too-fast sounds are neutral and do not add wrong attempts', () => {
+  for (const type of ['unclear','muted']) {
+    const h = appHarness(); lessonFixture(h);
+    h.app.attempt = {update:() => ({type})};
+    h.tick();
+    assert.equal(h.app.session.attempts, 0);
+    assert.equal(h.app.session.right, 0);
+    assert.equal(h.app.practiceFeedback().className, 'feedback neutral');
+    assert.doesNotMatch(h.app.practiceFeedback().textContent, /Not quite/);
+  }
+});
+
+test('Redo sound check recalibrates even if this audio session was already calibrated', async () => {
+  const h = appHarness({noiseFloor:'0.019',soundCheckDone:'true'});
+  h.app.chooseProfile('QA');
+  h.app.calibrated = true;
+  h.app.setupAudio = async () => { h.app.analyser = {}; return true; };
+  let checks = 0;
+  h.app.calibrateNoiseFloor = async () => { checks++; return true; };
+  h.app.runSoundCheck = () => {};
+  await h.element('redo-sound-check').onclick();
+  assert.equal(checks, 1);
+  assert.equal(h.app.currentScreen, 'sound');
+});
+
+test('last lesson offers songs and the standalone pick SVG matches the inline drawing', async () => {
+  const h = appHarness(); lessonFixture(h);
+  const last = require('./learning-path').LEARNING_PATH.at(-1);
+  h.app.lesson.id = last.id;
+  finishCards(h,5);
+  assert.match(h.element('next-session').textContent, /All lessons done/);
+  await h.app.finishPracticeResult();
+  assert.equal(h.app.currentScreen, 'songs');
+  const svg = require('node:fs').readFileSync('pick-grip.svg','utf8').replace(/\r/g, '').trim();
+  assert.ok(h.app.pickDrawing().includes(svg));
+  assert.match(svg, /xmlns="http:\/\/www.w3.org\/2000\/svg"/);
 });
 
 async function runTests() {
