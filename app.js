@@ -8,6 +8,7 @@ class GuitarApp {
     this.stream = null;
     this.buffer = null;
     this.raf = null;
+    this.navigationToken = 0;
     this.wakeLock = null;
     this.currentScreen = 'onboarding';
     this.profile = localStorage.getItem('guitar-profile');
@@ -37,7 +38,7 @@ class GuitarApp {
   cacheElements() {
     this.screens = [...document.querySelectorAll('.screen')];
     const ids = [
-      'home-button', 'profile-chip', 'onboarding-content', 'onboarding-next',
+      'nav-tuner', 'open-settings', 'redo-sound-check', 'pause-practice', 'home-button', 'profile-chip', 'onboarding-content', 'onboarding-next',
       'home-greeting', 'next-lesson-card', 'start-session', 'open-tuner',
       'open-songs', 'open-my-songs', 'switch-profile', 'songs-status',
       'level-fill', 'level-message', 'mic-settings', 'sound-continue',
@@ -46,7 +47,7 @@ class GuitarApp {
       'lesson-step', 'lesson-title', 'lesson-tip', 'count-in', 'note-instruction',
       'card-string', 'card-fret', 'card-finger', 'mini-fretboard',
       'lesson-feedback', 'retry-note', 'skip-note', 'built-in-song-list',
-      'play-title', 'play-progress', 'play-count-in', 'rhythm-track',
+      'play-title', 'song-part', 'song-progress-bar', 'result-whole-song', 'play-progress', 'play-count-in', 'rhythm-track',
       'play-string', 'play-fret', 'play-note', 'play-duration', 'play-feedback', 'tempo',
       'tempo-output', 'phrase-loop', 'play-toggle', 'play-retry',
       'custom-song-list', 'show-import', 'import-form', 'import-title',
@@ -57,6 +58,19 @@ class GuitarApp {
   }
 
   bindEvents() {
+    this.el['result-whole-song'].onclick = () => this.playWholeSong();
+    this.el['nav-tuner'].onclick = () => this.openStandaloneTuner();
+    this.el['open-settings'].onclick = () => this.show('settings');
+    this.el['redo-sound-check'].onclick = () => {
+      localStorage.setItem('soundCheckDone', 'false');
+      return this.beginDailySession('home');
+    };
+    this.el['pause-practice'].onclick = () => {
+      this.practicePaused = !this.practicePaused;
+      this.el['pause-practice'].textContent = this.practicePaused ? 'Resume' : 'Pause';
+      this.stopLoop();
+      if (!this.practicePaused) this.resumePractice();
+    };
     this.el['onboarding-next'].addEventListener('click', () => this.nextFirstRun());
     document.querySelectorAll('[data-profile]').forEach(button => {
       button.addEventListener('click', () => this.chooseProfile(button.dataset.profile));
@@ -67,7 +81,7 @@ class GuitarApp {
     this.el['open-songs'].addEventListener('click', () => this.openSongs());
     this.el['open-my-songs'].addEventListener('click', () => this.show('my-songs'));
     this.el['switch-profile'].addEventListener('click', () => this.show('profile'));
-    this.el['sound-continue'].addEventListener('click', () => this.openGuidedTuner('lesson'));
+    this.el['sound-continue'].addEventListener('click', () => this.openGuidedTuner(this.routeAfterTuner));
     this.el['tuner-continue'].addEventListener('click', () => this.finishTuner());
     this.el['tuner-skip'].addEventListener('click', () => this.finishTuner(true));
     this.el['retry-note'].addEventListener('click', () => this.retryCard());
@@ -120,9 +134,18 @@ class GuitarApp {
     }
   }
 
-  show(name) {
+  beginOperation() {
+    this.navigationToken++;
     this.stopLoop();
+    return this.navigationToken;
+  }
+
+  operationActive(token) { return token === this.navigationToken; }
+
+  show(name) {
+    this.beginOperation();
     this.currentScreen = name;
+    this.el['pause-practice'].classList.toggle('hidden', !(name === 'lesson' || (name === 'onboarding' && FIRST_RUN[this.firstRunStep]?.type === 'phrase')));
     this.screens.forEach(screen => screen.classList.toggle('hidden', screen.id !== `${name}-screen`));
     this.el['home-button'].classList.toggle('hidden', ['profile', 'home'].includes(name) || (name === 'onboarding' && !this.profile));
     this.el['profile-chip'].classList.toggle('hidden', !this.profile || ['onboarding', 'profile'].includes(name));
@@ -161,7 +184,7 @@ class GuitarApp {
       <p>${lesson.skill}</p>
       <p>One short demonstration, then guided cards at your pace.</p>`;
     const unlocked = this.progress.songsUnlocked();
-    this.el['songs-status'].textContent = unlocked ? 'Happy Birthday + Twinkle' : 'Unlock after lesson 4';
+    this.el['songs-status'].textContent = unlocked ? 'Melodies + easy riffs' : 'Unlock after starter step 4';
     this.el['open-songs'].disabled = !unlocked;
   }
 
@@ -192,7 +215,7 @@ class GuitarApp {
     }
     if (step.type === 'phrase') {
         this.el['onboarding-content'].innerHTML = `
-        <p class="eyebrow">Your first music</p><h1>${step.title}</h1>
+        <p class="eyebrow">Starter step ${this.firstRunStep} of 4</p><h1>${step.title}</h1>
         <p class="lede">Wait-for-me is on. Pick each card once.</p>
         <article class="note-card"><div class="note-directions">
           <div><small>STRING</small><strong id="first-string">1</strong></div>
@@ -226,12 +249,16 @@ class GuitarApp {
 
   async nextFirstRun() {
     const step = FIRST_RUN[this.firstRunStep];
-    if (step.type === 'phrase') return this.nextPracticeCard();
+    if (step.type === 'hold') { this.firstRunStep = 1; return this.beginDailySession('intro'); }
+    if (step.type === 'phrase') return;
     if (step.type === 'sound' && !this.soundPassed) {
       this.el['onboarding-next'].disabled = true;
-      const ok = await this.setupAudio();
+      const operation = this.beginOperation();
+      const ok = await this.setupAudio(operation);
+      if (!this.operationActive(operation)) return;
       if (!ok) { this.el['onboarding-next'].disabled = false; return; }
-      await this.calibrateNoiseFloor();
+      const calibrated = await this.calibrateNoiseFloor(operation);
+      if (calibrated === false || !this.operationActive(operation)) return;
       this.runFirstSoundCheck();
       this.el['onboarding-next'].textContent = 'Sound is good';
       this.el['onboarding-next'].disabled = true;
@@ -247,51 +274,98 @@ class GuitarApp {
     this.renderFirstRun();
   }
 
-  async setupAudio() {
+  async setupAudio(operation = this.navigationToken) {
+    let acquired = null;
     try {
+      if (!this.operationActive(operation)) return false;
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone API unavailable');
       if (!this.audioContext) {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
-      if (this.audioContext.state === 'suspended') await this.audioContext.resume();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+        if (!this.operationActive(operation)) return false;
+      }
       if (this.pitchDetector.sampleRate !== this.audioContext.sampleRate) {
         this.pitchDetector = new PitchDetector(this.audioContext.sampleRate);
         this.calibrated = false;
       }
       if (!this.stream) {
-        this.stream = await navigator.mediaDevices.getUserMedia({
+        acquired = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
         });
-        const source = this.audioContext.createMediaStreamSource(this.stream);
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 4096;
-        this.buffer = new Float32Array(this.analyser.fftSize);
-        source.connect(this.analyser);
-        this.micSettings = this.stream.getAudioTracks()[0].getSettings();
+        // Permission prompts cannot be cancelled. Dispose of their late result
+        // before publishing it to app state or connecting an analyser.
+        if (!this.operationActive(operation)) {
+          acquired.getTracks().forEach(track => track.stop());
+          return false;
+        }
+        const source = this.audioContext.createMediaStreamSource(acquired);
+        const analyser = this.audioContext.createAnalyser();
+        analyser.fftSize = 4096;
+        source.connect(analyser);
+        this.micSettings = acquired.getAudioTracks()[0].getSettings();
+        this.stream = acquired;
+        this.analyser = analyser;
+        this.buffer = new Float32Array(analyser.fftSize);
       }
       this.inputReady = true;
       return true;
     } catch (error) {
+      if (acquired) acquired.getTracks().forEach(track => track.stop());
+      if (!this.operationActive(operation)) return false;
       console.error(error);
       alert('Microphone access failed. Use HTTPS (or localhost), allow the mic, then try again.');
       return false;
     }
   }
 
-  async calibrateNoiseFloor() {
-    this.pitchDetector.startCalibration();
+  cancelCalibration() {
+    if (this.calibrationRaf != null) cancelAnimationFrame(this.calibrationRaf);
+    this.calibrationRaf = null;
+    if (this.calibrationDetector) {
+      this.calibrationDetector.calibrating = false;
+      this.calibrationDetector.calibrationRms = [];
+      this.calibrationDetector = null;
+    }
+    const resolve = this.calibrationResolve;
+    this.calibrationResolve = null;
+    if (resolve) resolve(false);
+  }
+
+  async calibrateNoiseFloor(operation = this.navigationToken) {
+    this.cancelCalibration();
+    const analyser = this.analyser;
+    const buffer = this.buffer;
+    const detector = this.pitchDetector;
+    if (!analyser || !buffer || !this.operationActive(operation)) return false;
+    detector.startCalibration();
+    this.calibrationDetector = detector;
     const started = performance.now();
-    await new Promise(resolve => {
+    const completed = await new Promise(resolve => {
+      this.calibrationResolve = resolve;
       const sample = () => {
-        this.analyser.getFloatTimeDomainData(this.buffer);
-        this.pitchDetector.addCalibrationFrame(this.buffer);
-        if (performance.now() - started >= 700) resolve();
-        else requestAnimationFrame(sample);
+        if (!this.operationActive(operation) || this.calibrationResolve !== resolve
+            || this.analyser !== analyser || this.buffer !== buffer) {
+          if (this.calibrationResolve === resolve) this.cancelCalibration();
+          else resolve(false);
+          return;
+        }
+        this.calibrationRaf = null;
+        analyser.getFloatTimeDomainData(buffer);
+        detector.addCalibrationFrame(buffer);
+        if (performance.now() - started >= 700) {
+          this.calibrationResolve = null;
+          resolve(true);
+        } else this.calibrationRaf = requestAnimationFrame(sample);
       };
       sample();
     });
-    this.pitchDetector.finishCalibration();
+    if (!completed || !this.operationActive(operation) || this.analyser !== analyser) return false;
+    this.calibrationDetector = null;
+    detector.finishCalibration();
     this.calibrated = true;
+    return true;
   }
 
   formatMicSettings() {
@@ -305,6 +379,7 @@ class GuitarApp {
   }
 
   readAnalysis() {
+    if (!this.analyser || !this.buffer) return { frequency: null, rawFrequency: null, clarity: 0, rms: 0, onset: false };
     this.analyser.getFloatTimeDomainData(this.buffer);
     return this.pitchDetector.analyze(this.buffer);
   }
@@ -318,16 +393,28 @@ class GuitarApp {
     this.startPractice(FIRST_RUN[this.firstRunStep].notes, 'intro');
   }
 
-  async beginDailySession() {
+  async beginDailySession(route = 'lesson') {
+    this.routeAfterTuner = route;
+    if (localStorage.getItem('soundCheckDone') === 'true') {
+      const operation = this.beginOperation();
+      const ok = await this.setupAudio(operation);
+      if (!this.operationActive(operation)) return;
+      if (ok) this.finishSetupRoute();
+      return;
+    }
     this.soundPassed = false;
-    this.routeAfterTuner = 'lesson';
     this.show('sound');
-    const ok = await this.setupAudio();
+    const operation = this.beginOperation();
+    const ok = await this.setupAudio(operation);
+    if (!this.operationActive(operation)) return;
     if (!ok) return this.goHome();
     this.el['mic-settings'].textContent = this.formatMicSettings();
     this.el['level-message'].textContent = 'Stay quiet for a quick room check…';
     this.el['sound-continue'].disabled = true;
-    if (!this.calibrated) await this.calibrateNoiseFloor();
+    if (!this.calibrated) {
+      const calibrated = await this.calibrateNoiseFloor(operation);
+      if (calibrated === false || !this.operationActive(operation)) return;
+    }
     this.runSoundCheck();
   }
 
@@ -336,10 +423,14 @@ class GuitarApp {
   }
 
   async openStandaloneTuner() {
-    this.routeAfterTuner = 'home';
-    const ok = await this.setupAudio();
+    if (this.currentScreen === 'tuner') return;
+    this.tunerReturn = { screen: this.currentScreen, playing: this.playing, route: this.routeAfterTuner };
+    this.stopLoop();
+    const operation = this.beginOperation();
+    const ok = await this.setupAudio(operation);
+    if (!this.operationActive(operation)) return;
     if (!ok) return;
-    this.openGuidedTuner('home', false);
+    this.openGuidedTuner('return', false);
   }
 
   openGuidedTuner(route = 'lesson', guided = true) {
@@ -377,8 +468,29 @@ class GuitarApp {
       this.renderTunerTarget();
       return;
     }
-    if (this.routeAfterTuner === 'lesson') this.startLesson();
+    if (this.routeAfterTuner === 'return') {
+      const saved = this.tunerReturn;
+      this.routeAfterTuner = saved.route;
+      this.show(saved.screen);
+      this.playing = saved.playing;
+      if ((saved.screen === 'lesson' || (saved.screen === 'play' && saved.playing) || (saved.screen === 'onboarding' && FIRST_RUN[this.firstRunStep]?.type === 'phrase')) && this.session && !this.practicePaused) this.resumePractice();
+      if (saved.screen === 'play' && saved.playing && !this.session) { this.playing = false; this.toggleSong(); }
+      if (saved.screen === 'sound') this.runSoundCheck();
+      return;
+    }
+    localStorage.setItem('soundCheckDone', 'true');
+    this.finishSetupRoute();
+  }
+
+  finishSetupRoute() {
+    if (this.routeAfterTuner === 'intro') this.renderFirstRun();
+    else if (this.routeAfterTuner === 'lesson') this.startLesson();
     else this.goHome();
+  }
+
+  resumePractice() {
+    if (this.session.state === 'playing') this.preparePracticeCard();
+    else if (['feedback', 'result'].includes(this.session.state)) this.scheduleSongAdvance();
   }
 
   startLesson() {
@@ -435,34 +547,19 @@ class GuitarApp {
   runLessonInput() { this.runPracticeInput(); }
 
   advanceLessonCard() {
+    this.practicePaused = false;
+    this.el['pause-practice'].textContent = 'Pause';
     this.stopLoop();
-    const skipped = this.session.cards[this.session.index];
     this.session.skip();
     if (this.session.state === 'result') {
-      this.saveExerciseScore();
-      this.exerciseResults[this.exerciseIndex] = false;
-      // Skip crosses exercise boundaries rather than presenting a one-card result.
-      while (this.exerciseIndex + 1 < this.lesson.exercises.length) {
-        this.exerciseIndex++;
-        const cards = this.expandedExercise(this.lesson.exercises[this.exerciseIndex]);
-        const different = cards.findIndex(card => card.string !== skipped.string || card.fret !== skipped.fret);
-        if (different >= 0) {
-          this.session = new PracticeSession(cards);
-          this.session.index = different;
-          this.preparePracticeCard(false);
-          return;
-        }
-        this.exerciseScores[this.exerciseIndex] = {right:0,attempts:0,total:cards.length};
-        this.exerciseResults[this.exerciseIndex] = false;
-        this.session = new PracticeSession(cards);
-        this.session.skip();
-      }
       this.practiceResult();
     }
     else this.preparePracticeCard();
   }
 
   retryCard() {
+    this.practicePaused = false;
+    this.el['pause-practice'].textContent = 'Pause';
     this.session.retry();
     this.preparePracticeCard();
   }
@@ -494,13 +591,16 @@ class GuitarApp {
   }
 
   async openSong(song) {
-    const ok = await this.setupAudio();
+    const operation = this.beginOperation();
+    const ok = await this.setupAudio(operation);
+    if (!this.operationActive(operation)) return;
     if (!ok) return;
     this.song = song;
     this.el.tempo.value = song.bpm || 70;
     this.el['tempo-output'].textContent = `${this.el.tempo.value} BPM`;
     this.show('play');
     this.buildPhraseOptions();
+    this.el['phrase-loop'].value = 'all';
     this.setSongRange();
   }
 
@@ -511,18 +611,19 @@ class GuitarApp {
     ranges.forEach((range, index) => {
       const option = document.createElement('option');
       option.value = `${range[0]}:${range[1]}`;
-      option.textContent = `Phrase ${index + 1}`;
+      option.textContent = `Part ${index + 1} of ${ranges.length}`;
       select.appendChild(option);
     });
   }
 
   phraseRanges(notes) {
     const ranges = [];
+    const explicitParts = notes.some(note => note.phraseEnd);
     let start = 0;
     let beats = 0;
     notes.forEach((note, index) => {
       beats += note.duration || 1;
-      if (beats >= 8 || index === notes.length - 1) {
+      if (note.phraseEnd || (!explicitParts && beats >= 8) || index === notes.length - 1) {
         ranges.push([start, index + 1]);
         start = index + 1;
         beats = 0;
@@ -534,7 +635,7 @@ class GuitarApp {
   setSongRange() {
     const value = this.el['phrase-loop'].value;
     this.wholeSong = value === 'all';
-    this.songRange = this.wholeSong ? this.phraseRanges(this.song.notes)[0] : value.split(':').map(Number);
+    this.songRange = this.wholeSong ? [0, this.song.notes.length] : value.split(':').map(Number);
     this.resetSongPhrase();
   }
 
@@ -567,12 +668,34 @@ class GuitarApp {
   renderSongCard() {
     const note = this.song.notes[this.songIndex];
     this.el['play-title'].textContent = this.song.title;
-    this.el['play-progress'].textContent = `${this.songIndex - this.songRange[0] + 1}/${this.songRange[1] - this.songRange[0]}`;
+    this.renderSongProgress();
     this.el['play-string'].textContent = stringLabel(note.string);
     this.el['play-fret'].textContent = note.fret;
     this.el['play-note'].textContent = `${note.note}${note.octave}`;
     this.el['play-note'].classList.add('scientific-note');
     this.el['play-duration'].textContent = `${note.duration} beat${note.duration === 1 ? '' : 's'} · string 1 is the thin high E`;
+  }
+
+  renderSongProgress() {
+    const ranges = this.phraseRanges(this.song.notes);
+    const part = ranges.findIndex(([start, end]) => this.songIndex >= start && this.songIndex < end);
+    const [start, end] = ranges[part];
+    const done = this.songIndex - start + (this.session && ['feedback', 'result'].includes(this.session.state) ? 1 : 0);
+    this.el['song-part'].textContent = `Part ${part + 1} of ${ranges.length} | ${this.wholeSong ? 'Whole song' : 'Part practice'}`;
+    this.el['play-progress'].textContent = `${done}/${end - start} notes done in part | ${this.songIndex + (done > this.songIndex - start ? 1 : 0)}/${this.song.notes.length} overall`;
+    this.el['song-progress-bar'].max = end - start;
+    this.el['song-progress-bar'].value = done;
+  }
+
+  async playWholeSong() {
+    const operation = this.beginOperation();
+    const ok = await this.setupAudio(operation);
+    if (!this.operationActive(operation)) return;
+    if (!ok) return;
+    this.el['phrase-loop'].value = 'all';
+    this.show('play');
+    this.setSongRange();
+    this.startPractice(this.song.notes, 'song');
   }
 
   async toggleSong() {
@@ -592,7 +715,9 @@ class GuitarApp {
       else this.scheduleSongAdvance();
     } else {
       this.el['play-toggle'].disabled = true;
-      await this.countIn(this.el['play-count-in'], Number(this.el.tempo.value));
+      const screen = this.currentScreen;
+      const completed = await this.countIn(this.el['play-count-in'], Number(this.el.tempo.value));
+      if (!completed || this.currentScreen !== screen) return;
       this.el['play-toggle'].disabled = false;
       if (!this.playing || this.currentScreen !== 'play') return;
       this.startPractice(this.song.notes.slice(...this.songRange), 'song');
@@ -602,9 +727,12 @@ class GuitarApp {
   scheduleSongAdvance() {
     this.stopLoop();
     const session = this.session;
+    const screen = this.currentScreen;
+    const generation = this.countInGeneration;
     this.songAdvanceTimer = setTimeout(() => {
+      if (generation !== this.countInGeneration) return;
       this.songAdvanceTimer = null;
-      if (!this.playing || this.currentScreen !== 'play' || this.session !== session) return;
+      if ((this.practiceKind === 'song' && !this.playing) || this.practicePaused || this.currentScreen !== screen || this.session !== session) return;
       this.nextPracticeCard();
     }, 180);
   }
@@ -612,14 +740,20 @@ class GuitarApp {
   runSongInput() { this.runPracticeInput(); }
 
   async countIn(element, bpm) {
+    const generation = this.countInGeneration || 0;
     element.classList.remove('hidden');
     for (let beat = 4; beat >= 1; beat -= 1) {
       element.textContent = beat;
       this.clickMetronome(beat === 4);
-      await new Promise(resolve => setTimeout(resolve, 60000 / bpm));
+      await new Promise(resolve => {
+        this.countInResolve = resolve;
+        this.countInTimer = setTimeout(() => { this.countInResolve = null; resolve(); }, 60000 / bpm);
+      });
+      if (generation !== this.countInGeneration) break;
       if (!this.playing || this.currentScreen !== 'play') break;
     }
     element.classList.add('hidden');
+    return generation === this.countInGeneration;
   }
 
   clickMetronome(accent) {
@@ -662,6 +796,10 @@ class GuitarApp {
   }
 
   stopLoop() {
+    this.cancelCalibration();
+    this.countInGeneration = (this.countInGeneration || 0) + 1;
+    clearTimeout(this.countInTimer);
+    if (this.countInResolve) { this.countInResolve(); this.countInResolve = null; }
     clearTimeout(this.songAdvanceTimer);
     this.songAdvanceTimer = null;
     if (this.raf) cancelAnimationFrame(this.raf);
@@ -669,6 +807,7 @@ class GuitarApp {
   }
 
   stopAudioInput() {
+    this.cancelCalibration();
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
     }
@@ -688,7 +827,9 @@ class GuitarApp {
   async requestWakeLock() {
     if (!('wakeLock' in navigator) || document.hidden || this.wakeLock) return;
     try {
+      const operation = this.navigationToken;
       const lock = await navigator.wakeLock.request('screen');
+      if (!this.operationActive(operation) || !this.needsWakeLock()) { await lock.release(); return; }
       this.wakeLock = lock;
       lock.addEventListener('release', () => {
         if (this.wakeLock === lock) this.wakeLock = null;
@@ -707,18 +848,21 @@ class GuitarApp {
   }
 
   async resumeAfterInterruption() {
+    const operation = this.navigationToken;
     this.el['resume-overlay'].classList.add('hidden');
     this.pausedByInterruption = false;
     if (this.audioContext?.state === 'suspended') await this.audioContext.resume();
+    if (!this.operationActive(operation)) return;
     await this.requestWakeLock();
+    if (!this.operationActive(operation)) return;
     if (this.currentScreen === 'tuner') this.runTuner();
     if (this.currentScreen === 'sound') this.runSoundCheck();
-    if (this.currentScreen === 'lesson' && this.session?.state === 'playing') this.preparePracticeCard();
+    if (this.currentScreen === 'lesson' && this.session && !this.practicePaused) this.resumePractice();
     if (this.currentScreen === 'onboarding') {
       const type = FIRST_RUN[this.firstRunStep].type;
       if (type === 'sound') this.runFirstSoundCheck();
       if (type === 'tuner') this.runFirstTuner();
-      if (type === 'phrase' && this.session?.state === 'playing') this.preparePracticeCard();
+      if (type === 'phrase' && this.session && !this.practicePaused) this.resumePractice();
     }
     if (this.currentScreen === 'play') {
       this.playing = false;
@@ -762,7 +906,9 @@ class GuitarApp {
     let passed = false;
     button.disabled = true;
     const screen = this.currentScreen;
+    const generation = this.countInGeneration;
     const tick = () => {
+      if (generation !== this.countInGeneration) return;
       if (this.currentScreen !== screen || !this.analyser) return;
       const frame = this.readAnalysis();
       if (gate.update(frame, performance.now()) && frame.rms <= 0.24) passed = true;
@@ -782,6 +928,8 @@ class GuitarApp {
 
   startPractice(cards, kind) {
     this.stopLoop();
+    this.practicePaused = false;
+    this.el['pause-practice'].textContent = 'Pause';
     this.practiceKind = kind;
     this.session = new PracticeSession(cards);
     this.preparePracticeCard();
@@ -812,7 +960,7 @@ class GuitarApp {
       note.className = 'scientific-note';
       this.setFeedback(document.getElementById('first-feedback'), 'neutral', 'Pick once and let it ring.');
       const button = this.el['onboarding-next'];
-      button.classList.remove('hidden'); button.disabled = true; button.textContent = 'Next';
+      button.classList.add('hidden'); button.disabled = true;
     }
     this.runPracticeInput();
   }
@@ -824,7 +972,9 @@ class GuitarApp {
   runPracticeInput() {
     this.stopLoop();
     const screen = this.currentScreen;
+    const generation = this.countInGeneration;
     const tick = () => {
+      if (generation !== this.countInGeneration) return;
       if (this.currentScreen !== screen || this.session?.state !== 'playing' || !this.analyser) return;
       const target = this.session.cards[this.session.index];
       const info = this.noteDetector.noteAt(target.string, target.fret);
@@ -832,15 +982,12 @@ class GuitarApp {
       if (result) {
         const right = result.type === 'right';
         this.session.record(right);
-        if (right && this.practiceKind === 'song') this.songResults[this.songIndex] = 'hit';
+        if (right && this.practiceKind === 'song') { this.songResults[this.songIndex] = 'hit'; this.renderSongProgress(); }
         const heard = result.frequency ? this.noteDetector.frequencyToNote(result.frequency).fullName : 'unclear sound';
         const message = right ? 'Right!' : result.type === 'muted' ? 'The note stopped too fast. Let it ring.' : `Not quite - that was ${heard}, try string ${target.string} fret ${target.fret}`;
         this.setFeedback(this.practiceFeedback(), right ? 'success' : 'error', message);
         if (right) {
-          if (this.practiceKind === 'song') { this.scheduleSongAdvance(); return; }
-          const id = this.practiceKind === 'intro' ? 'onboarding-next' : this.practiceKind === 'song' ? 'song-next' : 'lesson-next';
-          document.getElementById(id).disabled = false;
-          document.getElementById(id).textContent = this.session.state === 'result' ? 'See result' : 'Next';
+          this.scheduleSongAdvance();
           return;
         }
         // A new onset is required; a held wrong note cannot generate more attempts.
@@ -868,26 +1015,42 @@ class GuitarApp {
     this.stopLoop();
     this.playing = false;
     this.show('achievement');
-    let score = {right:this.session.right,total:this.session.cards.length,attempts:this.session.attempts};
+    const score = {right:this.session.right,total:this.session.cards.length,attempts:this.session.attempts};
     const lessonEnd = this.practiceKind === 'lesson' && this.exerciseIndex === this.lesson.exercises.length - 1;
     if (this.practiceKind === 'lesson') this.saveExerciseScore();
-    if (lessonEnd) score = this.exerciseScores.reduce((sum, item) => ({
-      right:sum.right + item.right, total:sum.total + item.total, attempts:sum.attempts + item.attempts
-    }), {right:0,total:0,attempts:0});
+    this.el['result-whole-song'].classList.add('hidden');
+    document.getElementById('result-next').classList.remove('hidden');
+    document.getElementById('result-next').textContent = 'Next';
     this.el['achievement-title'].textContent = lessonEnd ? 'Lesson result' : 'Practice result';
     this.el['achievement-body'].textContent = `${score.right}/${score.total} notes right · ${score.attempts} attempts. ${score.right === score.total ? 'Well done!' : 'You can try again or continue.'}`;
     this.el['next-session'].textContent = 'Try again, or press Next when you are ready.';
+    if (this.practiceKind === 'intro') {
+      this.el['achievement-title'].textContent = `Step ${this.firstRunStep} of 4 done`;
+    }
+    if (this.practiceKind === 'song') {
+      const ranges = this.phraseRanges(this.song.notes);
+      const part = ranges.findIndex(range => range[0] === this.songRange[0]);
+      this.el['achievement-title'].textContent = this.wholeSong ? 'Song done' : `Part ${part + 1} of ${ranges.length} done`;
+      this.el['next-session'].textContent = this.wholeSong ? 'You reached the end of the song.' : 'Continue to the next part, repeat this part, or play the whole song.';
+      document.getElementById('result-next').textContent = this.wholeSong ? 'Done' : 'Next part';
+      document.getElementById('result-next').disabled = !this.wholeSong && part === ranges.length - 1;
+      this.el['result-whole-song'].classList.toggle('hidden', this.wholeSong);
+    } else document.getElementById('result-next').disabled = false;
     this.el['achievement-home'].textContent = 'Home';
     this.el['achievement-home'].classList.toggle('hidden', !this.profile);
   }
 
   async retryPractice() {
+    this.stopLoop();
     const kind = this.practiceKind;
     const cards = this.session.cards;
-    const ok = await this.setupAudio();
+    const operation = this.beginOperation();
+    const ok = await this.setupAudio(operation);
+    if (!this.operationActive(operation)) return;
     if (!ok) return;
     if (kind === 'intro') { this.renderFirstRun(); return; }
     this.show(kind === 'song' ? 'play' : 'lesson');
+    if (kind === 'song') this.resetSongPhrase();
     this.startPractice(cards, kind);
   }
 
@@ -896,21 +1059,32 @@ class GuitarApp {
     if (this.practiceKind === 'lesson') this.exerciseResults[this.exerciseIndex] = this.session.right === this.session.cards.length;
     this.session.next();
     if (this.practiceKind === 'intro') {
+      if (FIRST_RUN[this.firstRunStep + 1]?.type === 'phrase') {
+        const operation = this.beginOperation();
+        const ok = await this.setupAudio(operation);
+        if (!this.operationActive(operation)) return;
+        if (!ok) { this.session.state = 'result'; return; }
+      }
       this.firstRunStep++;
       this.renderFirstRun();
     } else if (this.practiceKind === 'song') {
       const ranges = this.phraseRanges(this.song.notes);
       const following = ranges.find(range => range[0] === this.songRange[1]);
-      if (!this.wholeSong || !following) { this.goHome(); return; }
-      const ok = await this.setupAudio();
+      if (this.wholeSong || !following) { this.goHome(); return; }
+      const operation = this.beginOperation();
+      const ok = await this.setupAudio(operation);
+      if (!this.operationActive(operation)) return;
       if (!ok) { this.session.state = 'result'; return; }
+      this.el['phrase-loop'].value = `${following[0]}:${following[1]}`;
       this.songRange = following;
       this.show('play');
       this.resetSongPhrase();
       this.startPractice(this.song.notes.slice(...this.songRange), 'song');
     }
     else if (++this.exerciseIndex < this.lesson.exercises.length) {
-      const ok = await this.setupAudio();
+      const operation = this.beginOperation();
+      const ok = await this.setupAudio(operation);
+      if (!this.operationActive(operation)) return;
       if (!ok) return;
       this.show('lesson'); this.startExercise();
     } else this.completeLesson();
@@ -925,7 +1099,9 @@ class GuitarApp {
   listenTuner(first) {
     this.stopLoop();
     if (!this.tuneGate) this.beginTunerTracking();
+    const generation = this.countInGeneration;
     const tick = () => {
+      if (generation !== this.countInGeneration) return;
       if (this.currentScreen !== (first ? 'onboarding' : 'tuner') || !this.analyser) return;
       const frame = this.readAnalysis();
       const f = frame.rawFrequency ?? frame.frequency;

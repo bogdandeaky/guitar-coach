@@ -16,6 +16,9 @@
         <span class="brand-mark">P</span>
         <span>Pick &amp; Play</span>
       </a>
+      <button id="pause-practice" class="text-button hidden">Pause</button>
+      <button id="nav-tuner" class="text-button">Tuner</button>
+      <button id="open-settings" class="text-button">Settings</button>
       <span id="profile-chip" class="profile-chip hidden"></span>
     </header>
 
@@ -42,11 +45,13 @@
       <button id="replay-intro" class="secondary-button">Replay intro</button><div id="learning-steps" class="stack-list"></div>
       <div class="menu-grid">
         <button id="open-tuner" class="menu-card"><span>◎</span><strong>Tuner</strong><small>Auto-detect strings</small></button>
-        <button id="open-songs" class="menu-card"><span>♪</span><strong>Play songs</strong><small id="songs-status">Unlock after lesson 4</small></button>
+        <button id="open-songs" class="menu-card"><span>♪</span><strong>Play songs</strong><small id="songs-status">Unlock after starter step 4</small></button>
         <button id="open-my-songs" class="menu-card"><span>＋</span><strong>My songs</strong><small>Paste ASCII tab</small></button>
         <button id="switch-profile" class="menu-card"><span>↔</span><strong>Switch player</strong><small>Local profiles</small></button>
       </div>
     </section>
+
+    <section id="settings-screen" class="screen hidden"><h1>Settings</h1><button id="redo-sound-check" class="secondary-button">Redo sound check</button></section>
 
     <section id="sound-screen" class="screen hidden">
       <p class="eyebrow">Step 1 of 3</p>
@@ -98,7 +103,8 @@
         <div id="lesson-feedback" class="feedback neutral">Pick once when ready</div>
       </article>
       <div class="lesson-actions">
-        <button id="lesson-next" class="primary-button" disabled>Next</button>
+
+        <button id="lesson-next" class="primary-button hidden" disabled>Next</button>
         <button id="retry-note" class="secondary-button">Retry</button>
         <button id="skip-note" class="text-button">Skip this card</button>
       </div>
@@ -113,6 +119,8 @@
 
     <section id="play-screen" class="screen hidden">
       <div class="lesson-meta"><span id="play-title"></span><span id="play-progress"></span></div>
+      <p id="song-part" class="status-line" aria-live="polite"></p>
+      <progress id="song-progress-bar" value="0" max="1" aria-label="Notes completed in current part"></progress>
       <div id="play-count-in" class="count-in hidden"></div>
       <div id="rhythm-track" class="rhythm-track"></div>
       <article class="play-card">
@@ -125,8 +133,8 @@
         <div id="play-feedback" class="feedback neutral">Press play when ready</div>
       </article>
       <label class="range-row">Tempo <input id="tempo" type="range" min="45" max="100" value="70"><output id="tempo-output">70 BPM</output></label>
-      <p class="thin-e-reminder">Play each note as it appears. We wait for your pick; each phrase ends with a result.</p>
-      <label class="range-row">Phrase loop
+      <p class="thin-e-reminder">Play each note as it appears. We wait for your pick; Whole song flows through every part to one final result. Choose a part below to practise it separately.</p>
+      <label class="range-row">Practice mode
         <select id="phrase-loop"><option value="all">Whole song</option></select>
       </label>
       <div class="play-actions">
@@ -157,6 +165,7 @@
       <p id="achievement-body" class="lede"></p>
       <article id="next-session" class="hero-card"></article>
       <button id="result-retry" class="secondary-button">Try again</button>
+      <button id="result-whole-song" class="secondary-button hidden">Play whole song</button>
       <button id="result-next" class="primary-button">Next</button>
       <button id="achievement-home" class="primary-button">See next session</button>
     </section>
