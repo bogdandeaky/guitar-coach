@@ -1,20 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 540" width="100%" role="img" aria-labelledby="grip-title">
-  <title id="grip-title">Player's view of holding a guitar pick</title>
-  <rect width="520" height="540" rx="20" fill="#1f3a33"/>
-  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
-    <text x="24" y="38"><tspan x="24">Pick between thumb pad and side </tspan><tspan x="24" dy="29">of curled index finger</tspan></text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 526" width="100%" role="img" aria-labelledby="grip-title">
+  <title id="grip-title">Pick grip and angle seen from the front of the guitar</title>
+  <rect width="400" height="526" rx="20" fill="#1f3a33"/>
+  <g fill="#f4f5eb" font-family="sans-serif" font-size="26">
+    <text x="20" y="40" font-weight="bold">1. Grip</text>
+    <g transform="translate(0 -35) scale(.85)">
   <!-- Curled index below the thumb, viewed from the player's side. -->
   <path d="M96 240 C63 187 92 134 148 127 C202 119 259 145 291 181 C321 217 304 262 268 275 C228 289 190 266 180 234 L201 211 C217 240 254 245 265 222 C279 195 225 163 188 170 C158 175 159 206 175 222Z" fill="#bc8b68" stroke="#efc7a4" stroke-width="4"/>
   <!-- The covered pick body lies between finger and thumb. -->
   <path d="M218 197 Q247 182 275 201 Q285 210 275 230 L251 286 Q247 294 241 283 L211 225 Q203 207 218 197Z" fill="#f4c65e" stroke="#584422" stroke-width="4"/>
   <path d="M58 229 C61 196 96 182 133 185 L235 187 C264 187 279 204 270 224 C264 238 246 243 220 245 L135 261 C97 267 67 256 58 229Z" fill="#e2b18a" stroke="#f5d2b3" stroke-width="4"/>
   <path d="M218 199 Q242 193 252 204" fill="none" stroke="#bd8866" stroke-width="3"/>
-  <g stroke="#b8c8bc" stroke-width="3"><path d="M36 322H484 M36 342H484 M36 362H484"/></g>
-  <path d="M257 286 L296 280" fill="none" stroke="#f4f5eb" stroke-width="2"/>
-  <path d="M248 297 L252 315 M246 310 L252 315 L256 308" fill="none" stroke="#f4f5eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
-    <text x="306" y="268"><tspan x="306">Only the tip shows</tspan><tspan x="306" dy="29">(2-3 mm)</tspan></text>
-    <text x="24" y="478"><tspan x="24">Point it at the strings, </tspan><tspan x="24" dy="29">slightly angled</tspan></text>
+    </g>
+    <text x="205" y="245">tip 2-3 mm</text>
+    <path d="M211 211 L230 219" stroke="#f4f5eb" fill="none"/>
+    <path d="M20 290 H380" stroke="#b8c8bc" opacity=".3"/>
+    <text x="20" y="330" font-weight="bold"><tspan x="20">2. Seen from the</tspan><tspan x="20" dy="32">front of the guitar</tspan></text>
+    <path d="M25 460 H375 M25 486 H375 M25 512 H375" stroke="#b8c8bc" stroke-width="2"/>
+    <path d="M140 460 H260" stroke="#f4f5eb" stroke-width="3" stroke-dasharray="6 6" opacity="0.7"/>
+    <path d="M140 460 H260" transform="rotate(-15 200 460)" stroke="#f4c65e" stroke-width="10" stroke-linecap="round"/>
+    <path d="M250 460 A50 50 0 0 0 248.3 447.1" stroke="#f4f5eb" stroke-width="2" fill="none"/>
+    <text x="260" y="432" font-size="26">10-20°</text>
+    <text x="25" y="445" font-size="26">flat = 0°</text>
   </g>
 </svg>

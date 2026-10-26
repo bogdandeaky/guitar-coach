@@ -1043,6 +1043,43 @@ test('last lesson offers songs and the standalone pick SVG matches the inline dr
   assert.match(svg, /xmlns="http:\/\/www.w3.org\/2000\/svg"/);
 });
 
+test('note labels include solfege for every chromatic note and clear string names', () => {
+  const {noteLabel, stringLabel} = require('./practice');
+  const letters = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const names = ['do','do#','re','re#','mi','fa','fa#','sol','sol#','la','la#','si'];
+  letters.forEach((note, i) => assert.equal(noteLabel(note), `${note} (${names[i]})`));
+  assert.equal(stringLabel(1), 'String 1 (thin high E)');
+  assert.equal(stringLabel(6), 'String 6 (thick low E)');
+});
+
+test('rendered lesson and song cards separate note letters from octaves', () => {
+  const h = appHarness(); lessonFixture(h);
+  const text = node => [node.textContent || '', ...(node.children || []).map(text)].join(' ');
+  for (const lesson of require('./learning-path').LEARNING_PATH) {
+    h.app.lesson = lesson;
+    lesson.exercises.forEach((exercise, index) => {
+      h.app.exerciseIndex = index;
+      h.app.session = new PracticeSession(h.app.expandedExercise(exercise));
+      h.app.session.cards.forEach((_, i) => {
+        h.app.session.index = i; h.app.renderLessonCard();
+        assert.doesNotMatch(text(h.element('card-string')), /\b[A-G]#?\d\b/);
+        assert.match(text(h.element('card-string')), /octave/);
+      });
+    });
+  }
+  for (const song of BUILTIN_SONGS) {
+    h.app.song = song; h.app.songRange = [0, song.notes.length];
+    h.app.songResults = [];
+    song.notes.forEach((_, i) => {
+      h.app.songIndex = i; h.app.renderSongCard();
+      for (const id of ['play-string','play-note']) {
+        assert.doesNotMatch(text(h.element(id)), /\b[A-G]#?\d\b/);
+        assert.match(text(h.element(id)), /octave/);
+      }
+    });
+  }
+});
+
 async function runTests() {
 let failures = 0;
 for (const { name, fn } of tests) {

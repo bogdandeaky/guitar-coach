@@ -79,5 +79,6 @@ class PracticeSession {
     this.state = this.index >= this.cards.length ? 'result' : 'playing';
   }
 }
-const stringLabel = number => `String ${number} (${({1:'high E',2:'B',3:'G',4:'D',5:'A',6:'low E'})[number]})`;
-if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, PracticeSession, stringLabel };
+const stringLabel = number => `String ${number} (${({1:'thin high E',2:'B',3:'G',4:'D',5:'A',6:'thick low E'})[number]})`;
+const noteLabel = note => `${note} (${({C:'do',D:'re',E:'mi',F:'fa',G:'sol',A:'la',B:'si'})[note[0]]}${note.slice(1)})`;
+if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, PracticeSession, stringLabel, noteLabel };

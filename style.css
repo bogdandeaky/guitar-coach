@@ -75,7 +75,7 @@ p { line-height: 1.55; }
 .note-directions small { display: block; color: var(--muted); font-size: 10px; letter-spacing: .12em; }
 .note-directions strong { display: block; margin-top: 5px; color: var(--green); font-size: 28px; }
 .thin-e-reminder { margin: 14px 0; color: var(--muted); font-size: 13px; text-align: center; }
-.mini-fretboard { display: grid; grid-template-rows: repeat(6, 13px); padding: 10px 6px; border-radius: 12px; background: #a77b4b; }
+.mini-fretboard { display: grid; grid-template-rows: repeat(6, 13px); padding: 10px 6px 10px 24px; border-radius: 12px; background: #a77b4b; }
 .fret-row { position: relative; display: grid; grid-template-columns: 28px repeat(5, 1fr); border-top: 1px solid rgba(255,255,255,.75); }
 .fret-cell { border-left: 2px solid rgba(45,35,25,.75); }
 .fret-cell.active::after { content: ""; display: block; width: 12px; height: 12px; margin: -7px auto 0; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px #173615; }
@@ -162,3 +162,9 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 .note-card:has(.right-flash), .play-card:has(.right-flash) { background: #285c3d; box-shadow: 0 0 0 3px var(--green); }
 .pick-illustration { min-width: 0; }
 .pick-illustration figcaption { overflow-wrap: break-word; }
+
+.string-number { position: absolute; left: -18px; top: -7px; font-size: 11px; color: #fff; }
+.fretboard-caption { margin: 6px 0 0 -18px; font-size: 12px; line-height: 1.35; color: #fff; }
+.track-legend { font-size: 13px; color: var(--muted); margin-bottom: 0; }
+
+.note-octave { font-size: 12px; font-weight: normal; }

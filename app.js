@@ -222,7 +222,7 @@ class GuitarApp {
         <p class="eyebrow">Quick tune</p><h1>Hear the string clearly</h1>
         <article class="tuner-card"><div id="first-tuner-note" class="detected-note">—</div>
         <div class="tuner-gauge"><div class="gauge-center"></div><div id="first-tuner-needle"></div></div>
-        <div id="first-tuner-status" class="cents">Start with thick string 6 · E2</div></article>`;
+        <div id="first-tuner-status" class="cents">Start with thick string 6 · E (mi), octave 2</div></article>`;
       this.el['onboarding-next'].textContent = 'Skip to first phrase';
       this.el['onboarding-next'].disabled = false;
       this.runFirstTuner();
@@ -235,8 +235,8 @@ class GuitarApp {
         <article class="note-card"><div class="note-directions">
           <div><small>STRING</small><strong id="first-string">1</strong></div>
           <div><small>FRET</small><strong id="first-fret">0</strong></div>
-          <div><small>NOTE</small><strong id="first-note">E</strong></div>
-        </div><p class="thin-e-reminder">String 1 = thin high E</p>
+          <div><small>NOTE</small><strong id="first-note">E (mi)</strong></div>
+        </div><p class="thin-e-reminder">String 1 = thin high E (mi)</p>
         <div id="first-feedback" class="feedback neutral">Pick once when ready</div></article>`;
       this.el['onboarding-next'].classList.add('hidden');
       this.pitchDetector.resetTracking();
@@ -463,6 +463,19 @@ class GuitarApp {
     this.runTuner();
   }
 
+  renderNote(element, info) {
+    element.textContent = noteLabel(info.note);
+    const octave = document.createElement('small');
+    octave.className = 'note-octave';
+    octave.textContent = ` · octave ${info.octave}`;
+    element.appendChild(octave);
+  }
+
+  displayPitch(frequency) {
+    const info = this.noteDetector.frequencyToNote(frequency);
+    return `${noteLabel(info.note)} · octave ${info.octave}`;
+  }
+
   renderTunerTarget() {
     if (!this.tunerGuided) {
       this.el['tuner-target'].textContent = 'Pick any string';
@@ -540,7 +553,7 @@ class GuitarApp {
     const info = this.noteDetector.noteAt(target.string, target.fret);
     const small = document.createElement('small');
     small.className = 'scientific-note';
-    small.textContent = `${info.note}${info.octave}`;
+    small.textContent = `${noteLabel(info.note)} · octave ${info.octave}`;
     this.el['card-string'].appendChild(small);
     this.el['card-fret'].textContent = target.fret;
     this.el['card-finger'].textContent = target.finger || (target.fret ? target.fret : 'OPEN');
@@ -553,6 +566,11 @@ class GuitarApp {
     for (let string = 1; string <= 6; string += 1) {
       const row = document.createElement('div');
       row.className = 'fret-row';
+      row.style.borderTopWidth = `${0.5 + string * 0.4}px`;
+      const label = document.createElement('small');
+      label.className = 'string-number';
+      label.textContent = string;
+      row.appendChild(label);
       for (let fret = 0; fret <= 5; fret += 1) {
         const cell = document.createElement('span');
         cell.className = `fret-cell${string === activeString && fret === activeFret ? ' active' : ''}`;
@@ -560,6 +578,10 @@ class GuitarApp {
       }
       container.appendChild(row);
     }
+    const caption = document.createElement('small');
+    caption.className = 'fretboard-caption';
+    caption.textContent = 'Top line = string 1 (thin high E), like tab. On your guitar it is the string nearest the floor.';
+    container.appendChild(caption);
   }
 
   runLessonInput() { this.runPracticeInput(); }
@@ -684,12 +706,12 @@ class GuitarApp {
     this.renderSongProgress();
     this.el['play-string'].textContent = `String ${note.string}, ${note.fret === 0 ? 'open' : `fret ${note.fret}`}`;
     const name = document.createElement('small');
-    name.className = 'scientific-note'; name.textContent = `${note.note}${note.octave}`;
+    name.className = 'scientific-note'; name.textContent = `${noteLabel(note.note)} · octave ${note.octave}`;
     this.el['play-string'].appendChild(name);
     this.el['play-fret'].textContent = note.fret;
-    this.el['play-note'].textContent = `${note.note}${note.octave}`;
+    this.renderNote(this.el['play-note'], note);
     this.el['play-note'].classList.add('scientific-note');
-    this.el['play-duration'].textContent = `${note.duration} beat${note.duration === 1 ? '' : 's'} · string 1 is the thin high E`;
+    this.el['play-duration'].textContent = `${note.duration} beat${note.duration === 1 ? '' : 's'} · string 1 is the thin high E (mi)`;
   }
 
   renderSongProgress() {
@@ -910,26 +932,31 @@ class GuitarApp {
   }
 
   pickDrawing() {
-    return `<figure class="pick-illustration hint-card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 540" width="100%" role="img" aria-labelledby="grip-title">
-  <title id="grip-title">Player's view of holding a guitar pick</title>
-  <rect width="520" height="540" rx="20" fill="#1f3a33"/>
-  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
-    <text x="24" y="38"><tspan x="24">Pick between thumb pad and side </tspan><tspan x="24" dy="29">of curled index finger</tspan></text>
-  </g>
+    return `<figure class="pick-illustration hint-card"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 526" width="100%" role="img" aria-labelledby="grip-title">
+  <title id="grip-title">Pick grip and angle seen from the front of the guitar</title>
+  <rect width="400" height="526" rx="20" fill="#1f3a33"/>
+  <g fill="#f4f5eb" font-family="sans-serif" font-size="26">
+    <text x="20" y="40" font-weight="bold">1. Grip</text>
+    <g transform="translate(0 -35) scale(.85)">
   <!-- Curled index below the thumb, viewed from the player's side. -->
   <path d="M96 240 C63 187 92 134 148 127 C202 119 259 145 291 181 C321 217 304 262 268 275 C228 289 190 266 180 234 L201 211 C217 240 254 245 265 222 C279 195 225 163 188 170 C158 175 159 206 175 222Z" fill="#bc8b68" stroke="#efc7a4" stroke-width="4"/>
   <!-- The covered pick body lies between finger and thumb. -->
   <path d="M218 197 Q247 182 275 201 Q285 210 275 230 L251 286 Q247 294 241 283 L211 225 Q203 207 218 197Z" fill="#f4c65e" stroke="#584422" stroke-width="4"/>
   <path d="M58 229 C61 196 96 182 133 185 L235 187 C264 187 279 204 270 224 C264 238 246 243 220 245 L135 261 C97 267 67 256 58 229Z" fill="#e2b18a" stroke="#f5d2b3" stroke-width="4"/>
   <path d="M218 199 Q242 193 252 204" fill="none" stroke="#bd8866" stroke-width="3"/>
-  <g stroke="#b8c8bc" stroke-width="3"><path d="M36 322H484 M36 342H484 M36 362H484"/></g>
-  <path d="M257 286 L296 280" fill="none" stroke="#f4f5eb" stroke-width="2"/>
-  <path d="M248 297 L252 315 M246 310 L252 315 L256 308" fill="none" stroke="#f4f5eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#f4f5eb" font-family="sans-serif" font-size="23">
-    <text x="306" y="268"><tspan x="306">Only the tip shows</tspan><tspan x="306" dy="29">(2-3 mm)</tspan></text>
-    <text x="24" y="478"><tspan x="24">Point it at the strings, </tspan><tspan x="24" dy="29">slightly angled</tspan></text>
+    </g>
+    <text x="205" y="245">tip 2-3 mm</text>
+    <path d="M211 211 L230 219" stroke="#f4f5eb" fill="none"/>
+    <path d="M20 290 H380" stroke="#b8c8bc" opacity=".3"/>
+    <text x="20" y="330" font-weight="bold"><tspan x="20">2. Seen from the</tspan><tspan x="20" dy="32">front of the guitar</tspan></text>
+    <path d="M25 460 H375 M25 486 H375 M25 512 H375" stroke="#b8c8bc" stroke-width="2"/>
+    <path d="M140 460 H260" stroke="#f4f5eb" stroke-width="3" stroke-dasharray="6 6" opacity="0.7"/>
+    <path d="M140 460 H260" transform="rotate(-15 200 460)" stroke="#f4c65e" stroke-width="10" stroke-linecap="round"/>
+    <path d="M250 460 A50 50 0 0 0 248.3 447.1" stroke="#f4f5eb" stroke-width="2" fill="none"/>
+    <text x="260" y="432" font-size="26">10-20°</text>
+    <text x="25" y="445" font-size="26">flat = 0°</text>
   </g>
-</svg><figcaption>Rest the pick on your curled index finger, then cover it with your thumb pad. Keep your grip relaxed.</figcaption></figure>`;
+</svg><figcaption><ul><li>Hold the pick between your thumb pad and the side of your curled index finger.</li><li>Only the tip shows: 2-3 mm.</li><li>Point the tip at the strings.</li><li>Turn the pick 10-20° as you see it from the front of the guitar (like a clock hand moving a little), so its edge, not its flat face, brushes the string. Either direction is fine, just not flat.</li></ul></figcaption></figure>`;
   }
 
   listenForSound(fill, message, button) {
@@ -989,7 +1016,7 @@ class GuitarApp {
       document.getElementById('first-string').textContent = stringLabel(target.string);
       document.getElementById('first-fret').textContent = target.fret;
       const note = document.getElementById('first-note');
-      note.textContent = `${info.note}${info.octave}`;
+      this.renderNote(note, info);
       note.className = 'scientific-note';
       this.setFeedback(document.getElementById('first-feedback'), 'neutral', 'Pick once and let it ring.');
       const button = this.el['onboarding-next'];
@@ -1016,7 +1043,7 @@ class GuitarApp {
         const right = result.type === 'right';
         if (right || result.type === 'wrong') this.session.record(right);
         if (right && this.practiceKind === 'song') { this.songResults[this.songIndex] = 'hit'; this.renderSongProgress(); }
-        const heard = result.frequency ? this.noteDetector.frequencyToNote(result.frequency).fullName : 'unclear sound';
+        const heard = result.frequency ? this.displayPitch(result.frequency) : 'unclear sound';
         const message = right ? 'Right!' : result.type === 'muted' ? 'The note stopped too fast. Let it ring.' : result.type === 'unclear' ? "Didn't hear that clearly. Pick again and let it ring." : `Not quite - that was ${heard}, try string ${target.string} fret ${target.fret}`;
         this.setFeedback(this.practiceFeedback(), right ? 'success' : result.type === 'wrong' ? 'error' : 'neutral', message);
         if (right) {
@@ -1175,7 +1202,7 @@ class GuitarApp {
         if (stable) this.tunedStrings.add(target.number);
       } else this.tuneGate.reset();
       const label = target ? stringLabel(target.number) : 'Pick one open string';
-      const scientific = f ? this.noteDetector.frequencyToNote(f).fullName : '—';
+      const scientific = f ? this.displayPitch(f) : '—';
       const instruction = stable ? '✓ In tune' : cents === null ? 'Pick and let it ring' : Math.abs(cents) <= 5 ? 'Hold steady…' : cents < 0 ? '↑ Tighten (too low)' : '↓ Loosen (too high)';
       const noteEl = first ? document.getElementById('first-tuner-note') : this.el['tuner-note'];
       noteEl.replaceChildren();

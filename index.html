@@ -122,6 +122,7 @@
       <p id="song-part" class="status-line" aria-live="polite"></p>
       <progress id="song-progress-bar" value="0" max="1" aria-label="Notes completed in current part"></progress>
       <div id="play-count-in" class="count-in hidden"></div>
+      <p class="track-legend">Each box: string · fret</p>
       <div id="rhythm-track" class="rhythm-track"></div>
       <article class="play-card">
         <div class="note-directions">
@@ -169,7 +170,7 @@
       <button id="result-next" class="primary-button">Next</button>
       <button id="achievement-home" class="secondary-button">See next session</button>
     </section>
-    <p class="note-help">The letter is the note name; the number is which octave (how high).<br>Notes go C D E F G A B, then C starts the next octave, so the number goes up at C.</p>
+    <p class="note-help">Note names: C = do, D = re, E = mi, F = fa, G = sol, A = la, B = si.<br>The octave number says how high the note is; it is not a string number. Open string 6 and open string 1 are both E (mi): string 6 is octave 2, string 1 is octave 4 (two octaves higher).<br>Notes go C D E F G A B, then C starts the next octave, so the number goes up at C.</p>
   </main>
 
   <div id="resume-overlay" class="overlay hidden" role="dialog" aria-modal="true">
