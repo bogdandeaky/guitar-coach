@@ -1080,6 +1080,52 @@ test('rendered lesson and song cards separate note letters from octaves', () => 
   }
 });
 
+test('Faster intro has the requested beginner notes and three explicit parts', () => {
+  const song = BUILTIN_SONGS.find(song => song.id === 'faster-intro-bogdan');
+  assert.ok(song);
+  assert.equal(song.notes.length, 22);
+  assert.equal(Math.max(...song.notes.map(note => note.fret)), 5);
+  assert.equal(song.difficulty, 'beginner');
+  assert.equal(song.bpm, 70);
+  assert.equal(song.owner, 'Bogdan');
+  assert.equal(song.group, "Bogdan's riffs");
+  assert.equal(song.youtube, 'https://www.youtube.com/watch?v=NDlMDq0BjXM');
+  assert.equal(song.notes.filter(note => note.phraseEnd).length, 3);
+  const {app, element} = appHarness();
+  assert.equal(JSON.stringify(app.phraseRanges(song.notes)), '[[0,8],[8,15],[15,22]]');
+  assert.ok(song.notes.every(note => note.duration === (note.phraseEnd ? 1 : 0.5)));
+  app.song = song;
+  app.buildPhraseOptions();
+  assert.match(element('phrase-loop').innerHTML, /Whole song/);
+  assert.deepEqual(element('phrase-loop').children.map(option => option.textContent), ['Part 1 of 3', 'Part 2 of 3', 'Part 3 of 3']);
+});
+
+test('owned riffs and their YouTube cards are visible only for the matching profile', () => {
+  const {app, element, context} = appHarness({'guitar-profile':'Bogdan'});
+  const list = element('built-in-song-list');
+  const text = node => [node.textContent || '', node.innerHTML || '', ...(node.children || []).map(text)].join(' ');
+  assert.match(text(list), /Faster \(Within Temptation\)/);
+  assert.match(text(list), /Bogdan's riffs/);
+  const card = list.children.at(-1);
+  const link = card.children[1];
+  assert.equal(link.href, 'https://www.youtube.com/watch?v=NDlMDq0BjXM');
+  assert.equal(link.target, '_blank');
+  assert.equal(link.rel, 'noopener');
+  app.chooseProfile('Aron');
+  assert.equal(context.localStorage.getItem('guitar-profile'), 'Aron');
+  assert.doesNotMatch(text(list), /Faster|Bogdan's riffs|Watch on YouTube/);
+  assert.equal(list.children.length, BUILTIN_SONGS.filter(song => !song.owner).length);
+  app.chooseProfile('Bogdan');
+  assert.match(text(list), /Faster/);
+  list.replaceChildren();
+  app.progress.songsUnlocked = () => true;
+  app.openSongs();
+  assert.match(text(list), /Faster/);
+  app.profile = 'Aron';
+  app.openSongs();
+  assert.doesNotMatch(text(list), /Faster|Bogdan's riffs/);
+});
+
 async function runTests() {
 let failures = 0;
 for (const { name, fn } of tests) {

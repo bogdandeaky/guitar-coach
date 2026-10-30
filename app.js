@@ -184,6 +184,7 @@ class GuitarApp {
     this.profile = profile;
     localStorage.setItem('guitar-profile', profile);
     this.progress = new LearningProgress(profile);
+    this.renderBuiltInSongs();
     this.goHome();
   }
 
@@ -610,17 +611,40 @@ class GuitarApp {
   }
 
   renderBuiltInSongs() {
-    this.el['built-in-song-list'].innerHTML = '';
-    BUILTIN_SONGS.forEach(song => {
+    const list = this.el['built-in-song-list'];
+    list.replaceChildren();
+    const visible = BUILTIN_SONGS.filter(song => !song.owner || this.profile === song.owner);
+    const shared = visible.filter(song => !song.owner);
+    const owned = visible.filter(song => song.owner);
+    let group;
+    [...shared, ...owned].forEach(song => {
+      if (song.owner && group !== song.group) {
+        group = song.group;
+        const heading = document.createElement('h2');
+        heading.className = 'eyebrow';
+        heading.textContent = song.group || `${song.owner}'s riffs`;
+        list.appendChild(heading);
+      }
       const button = document.createElement('button');
       button.className = 'song-row';
       button.innerHTML = `<div><strong>${song.title}</strong><small>${({beginner:'★ Easy',intermediate:'★★ Medium',harder:'★★★ Harder'})[song.difficulty]} · ${song.description} · ${song.bpm} BPM</small></div><span>›</span>`;
       button.addEventListener('click', () => this.openSong(song));
-      this.el['built-in-song-list'].appendChild(button);
+      if (song.youtube) {
+        const card = document.createElement('article');
+        const link = document.createElement('a');
+        link.href = song.youtube;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'Watch on YouTube';
+        card.appendChild(button);
+        card.appendChild(link);
+        list.appendChild(card);
+      } else list.appendChild(button);
     });
   }
 
   openSongs() {
+    this.renderBuiltInSongs();
     if (!this.progress.songsUnlocked()) return;
     this.show('songs');
   }

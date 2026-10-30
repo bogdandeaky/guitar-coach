@@ -1349,6 +1349,45 @@ const BUILTIN_SONGS = [
     }
   ]
 },
+  {
+    id: 'faster-intro-bogdan',
+    title: 'Faster (Within Temptation) - intro riff',
+    difficulty: 'beginner',
+    bpm: 70,
+    owner: 'Bogdan',
+    group: "Bogdan's riffs",
+    youtube: 'https://www.youtube.com/watch?v=NDlMDq0BjXM',
+    description: 'Based on the Andrew Smith Music tab. Standard tuning, frets 0-5; palm mute the open/low chugs.',
+    notes: [
+      // Part 1
+      { string: 5, fret: 2, note: 'B', octave: 2, duration: 0.5 },
+      { string: 5, fret: 2, note: 'B', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 5, fret: 2, note: 'B', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 5, fret: 5, note: 'D', octave: 3, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 6, fret: 4, note: 'G#', octave: 2, duration: 1.0, phraseEnd: true },
+
+      // Part 2
+      { string: 6, fret: 4, note: 'G#', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 6, fret: 4, note: 'G#', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 5, fret: 5, note: 'D', octave: 3, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E', octave: 2, duration: 1.0, phraseEnd: true },
+
+      // Part 3
+      { string: 6, fret: 0, note: 'E', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E', octave: 2, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 5, fret: 5, note: 'D', octave: 3, duration: 0.5 },
+      { string: 5, fret: 4, note: 'C#', octave: 3, duration: 0.5 },
+      { string: 6, fret: 4, note: 'G#', octave: 2, duration: 1.0, phraseEnd: true }
+    ]
+  },
 ];
 
 // Export for use in both browser and Node.js
