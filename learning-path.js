@@ -798,7 +798,7 @@ class LearningProgress {
   }
 
   songsUnlocked() {
-    return this.completed.includes('familiar-phrase');
+    return this.completed.length > 0;
   }
 }
 

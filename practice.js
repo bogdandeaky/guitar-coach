@@ -45,15 +45,28 @@ class NoteAttempt {
     // Require a confirmed disappearance, not a single dropped pitch frame.
     if (quiet && !scoringFrequency(frame)) {
       if (this.lost === null && elapsed <= 150) this.lost = now;
-      if (this.lost !== null && now - this.lost >= 32) { this.done = true; return { type: 'muted' }; }
+      if (this.lost !== null && now - this.lost >= 32) { this.done = true; return { type: 'muted', peak: this.peak }; }
     } else this.lost = null;
     if (this.gate.update(frame, now)) {
       this.done = true;
       const frequency = this.gate.frequency;
-      return { type: Math.abs(1200 * Math.log2(frequency / expected)) <= 50 ? 'right' : 'wrong', frequency };
+      return { type: Math.abs(1200 * Math.log2(frequency / expected)) <= 50 ? 'right' : 'wrong', frequency, peak: this.peak };
     }
-    if (elapsed > 1800) { this.done = true; return { type: 'unclear' }; }
+    if (elapsed > 1800) { this.done = true; return { type: 'unclear', peak: this.peak }; }
     return null;
+  }
+}
+
+const QUIET_NOTE_PEAK = 0.03;
+
+class QuietNoteTip {
+  constructor() { this.count = 0; this.shown = false; }
+  update(result) {
+    const quiet = ['unclear', 'muted'].includes(result.type) && result.peak < QUIET_NOTE_PEAK;
+    this.count = quiet ? this.count + 1 : 0;
+    if (this.count < 2 || this.shown) return false;
+    this.shown = true;
+    return true;
   }
 }
 
@@ -81,4 +94,4 @@ class PracticeSession {
 }
 const stringLabel = number => `String ${number} (${({1:'thin high E',2:'B',3:'G',4:'D',5:'A',6:'thick low E'})[number]})`;
 const noteLabel = note => `${note} (${({C:'do',D:'re',E:'mi',F:'fa',G:'sol',A:'la',B:'si'})[note[0]]}${note.slice(1)})`;
-if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, PracticeSession, stringLabel, noteLabel };
+if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, QuietNoteTip, QUIET_NOTE_PEAK, PracticeSession, stringLabel, noteLabel };

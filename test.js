@@ -194,7 +194,7 @@ test('built-in song notes match their strings and frets', () => {
 });
 
 
-const { SteadyPitch, NoteAttempt, PracticeSession } = require('./practice.js');
+const { SteadyPitch, NoteAttempt, QuietNoteTip, QUIET_NOTE_PEAK, PracticeSession } = require('./practice.js');
 
 function simulateAudio(makeBuffer, duration = 900, expected = 110) {
   const detector = new PitchDetector();
@@ -506,11 +506,12 @@ test('Skip finds a different card and stops at the exercise boundary', () => {
   assert.equal(app.progress.completed.length, 0);
 });
 
-test('songs auto-advance inside phrases, pause safely, and stop at phrase result', () => {
+test('songs auto-advance inside phrases, pause safely, and stop at phrase result', async () => {
   const h = appHarness();
   const {app, element, timers} = h;
   app.analyser = {};
-  app.song = {title:'QA',notes:[{string:1,fret:0,note:'E',octave:4,duration:4},{string:1,fret:1,note:'F',octave:4,duration:4}]};
+  app.setupAudio = async () => true;
+  await app.openSong({title:'QA',notes:[{string:1,fret:0,note:'E',octave:4,duration:4},{string:1,fret:1,note:'F',octave:4,duration:4}]});
   app.songRange = [0,2];
   app.songResults = {};
   app.show('play');
@@ -1124,6 +1125,275 @@ test('owned riffs and their YouTube cards are visible only for the matching prof
   app.profile = 'Aron';
   app.openSongs();
   assert.doesNotMatch(text(list), /Faster|Bogdan's riffs/);
+});
+
+test('songs unlock after any completed lesson and remain separate per profile', () => {
+  const h = appHarness();
+  h.app.chooseProfile('Bogdan');
+  assert.equal(h.app.progress.songsUnlocked(), false);
+  assert.equal(h.element('songs-status').textContent, 'Unlock after lesson 1');
+  h.app.progress.complete('open-strings');
+  h.app.renderHome();
+  assert.equal(h.app.progress.songsUnlocked(), true);
+  assert.equal(h.element('songs-status').textContent, 'Melodies + easy riffs');
+  h.app.chooseProfile('Aron');
+  assert.equal(h.app.progress.songsUnlocked(), false);
+  h.app.chooseProfile('Bogdan');
+  assert.equal(h.app.progress.songsUnlocked(), true);
+  for (const id of ['familiar-phrase', 'one-fret']) {
+    const old = appHarness({'guitar-progress-Aron':JSON.stringify({completed:[id]})});
+    old.app.chooseProfile('Aron');
+    assert.equal(old.app.progress.songsUnlocked(), true);
+    assert.equal(old.app.progress.nextLesson().id, 'open-strings');
+  }
+});
+
+test('quiet note tip needs two consecutive quiet attempts and appears once per instance', () => {
+  const quiet = {type:'unclear',peak:QUIET_NOTE_PEAK - 0.001};
+  for (const reset of [
+    {type:'right',peak:0.01}, {type:'wrong',peak:0.01},
+    {type:'unclear',peak:QUIET_NOTE_PEAK}, {type:'muted',peak:0.2}, {type:'unclear'}
+  ]) {
+    const tip = new QuietNoteTip();
+    assert.equal(tip.update(quiet), false);
+    assert.equal(tip.update(reset), false);
+    assert.equal(tip.update(quiet), false);
+    assert.equal(tip.update({type:'muted',peak:0.01}), true);
+    assert.equal(tip.update(quiet), false);
+    tip.update({type:'right',peak:0.01});
+    assert.equal(tip.update(quiet), false);
+    assert.equal(tip.update(quiet), false);
+  }
+});
+
+test('quiet tip appears only once across lesson exercises and resets for a new lesson', () => {
+  const h = appHarness(); lessonFixture(h, 2);
+  const {app, element} = h;
+  const input = () => {
+    app.attempt = {update:() => ({type:'unclear',peak:0.01})};
+    h.tick();
+  };
+  input(); input();
+  assert.equal(element('lesson-quiet-tip').classList.contains('hidden'), false);
+  const tip = app.quietTip;
+  const firstSession = app.session;
+  finishCards(h, 5);
+  h.flushTimer();
+  assert.equal(app.exerciseIndex, 1);
+  assert.notEqual(app.session, firstSession);
+  assert.equal(app.quietTip, tip);
+  input(); input();
+  assert.equal(element('lesson-quiet-tip').classList.contains('hidden'), true);
+  app.selectedLesson = require('./learning-path').LEARNING_PATH[1];
+  app.startLesson();
+  assert.notEqual(app.quietTip, tip);
+  input();
+  assert.equal(element('lesson-quiet-tip').classList.contains('hidden'), true);
+  input();
+  assert.equal(element('lesson-quiet-tip').classList.contains('hidden'), false);
+});
+
+test('song reset hides quiet tip and keeps its once-per-open lifetime across ranges and Retry', async () => {
+  const h = appHarness();
+  const {app, element} = h;
+  app.setupAudio = async () => { app.analyser = {}; return true; };
+  app.readAnalysis = () => ({frequency:null,clarity:0,rms:0});
+  const song = {title:'QA',notes:Array.from({length:4}, () => ({string:1,fret:0,note:'E',octave:4,duration:4}))};
+  await app.openSong(song);
+  const input = () => {
+    app.attempt = {update:() => ({type:'unclear',peak:0.01})};
+    h.tick();
+  };
+  app.startPractice(song.notes, 'song');
+  input(); input();
+  assert.equal(element('play-quiet-tip').classList.contains('hidden'), false);
+  const tip = app.quietTip;
+  app.resetSongPhrase();
+  assert.equal(element('play-quiet-tip').classList.contains('hidden'), true);
+  for (const range of ['0:2', '2:4', 'all']) {
+    element('phrase-loop').value = range;
+    app.setSongRange();
+    app.startPractice(song.notes.slice(...app.songRange), 'song');
+    assert.equal(app.quietTip, tip);
+    input(); input();
+    assert.equal(element('play-quiet-tip').classList.contains('hidden'), true);
+  }
+  await app.openSong(song);
+  assert.notEqual(app.quietTip, tip);
+  app.startPractice(song.notes, 'song');
+  input(); input();
+  assert.equal(element('play-quiet-tip').classList.contains('hidden'), false);
+});
+
+test('quiet tip stays shown once across intro phrases and resets for a new intro run', () => {
+  const h = appHarness();
+  const {app, element} = h;
+  app.analyser = {};
+  app.readAnalysis = () => ({frequency:null,clarity:0,rms:0});
+  app.firstRunStep = 1;
+  app.renderFirstRun();
+  const input = () => {
+    app.attempt = {update:() => ({type:'unclear',peak:0.01})};
+    h.tick();
+  };
+  input(); input();
+  assert.equal(element('first-quiet-tip').classList.contains('hidden'), false);
+  const tip = app.quietTip;
+  app.firstRunStep = 2;
+  app.renderFirstRun();
+  assert.equal(app.quietTip, tip);
+  input(); input();
+  assert.equal(element('first-quiet-tip').classList.contains('hidden'), true);
+  app.firstRunStep = 1;
+  app.renderFirstRun();
+  assert.notEqual(app.quietTip, tip);
+  input(); input();
+  assert.equal(element('first-quiet-tip').classList.contains('hidden'), false);
+});
+
+test('NoteAttempt includes maximum rms with each unchanged result type', () => {
+  for (const type of ['right','wrong','unclear','muted']) {
+    const attempt = new NoteAttempt();
+    const frame = {frequency:type === 'unclear' ? null : 110,clarity:type === 'unclear' ? 0 : 1,rms:0.02,onset:true};
+    let result = attempt.update(frame, 0, type === 'wrong' ? 220 : 110);
+    for (let t=20;t<=1840 && !result;t+=20) {
+      const next = type === 'muted' ? {frequency:null,clarity:0,rms:0} : {...frame,onset:false,rms:0.01};
+      result = attempt.update(next, t, type === 'wrong' ? 220 : 110);
+    }
+    assert.equal(result.type, type);
+    assert.equal(result.peak, 0.02);
+    assert.equal(attempt.update(frame, 2000, 110), null);
+  }
+});
+
+test('quiet hints are separate from feedback in lesson, song and intro and clear on right or navigation', () => {
+  for (const kind of ['lesson','song','intro']) {
+    const h = appHarness(); lessonFixture(h);
+    const {app,element} = h;
+    app.practiceKind = kind;
+    app.songResults = []; app.songIndex = 0;
+    app.renderSongProgress = () => {};
+    const id = kind === 'intro' ? 'first-quiet-tip' : kind === 'song' ? 'play-quiet-tip' : 'lesson-quiet-tip';
+    const input = type => {
+      app.attempt = {update:() => ({type,peak:0.01})};
+      h.tick();
+    };
+    input('unclear');
+    assert.equal(element(id).classList.contains('hidden'), true);
+    input('muted');
+    assert.equal(element(id).classList.contains('hidden'), false);
+    assert.equal(element(id).textContent, 'Notes sound quiet. Move the phone a little closer to the amp or turn the volume up a bit.');
+    assert.match(app.practiceFeedback().textContent, /stopped too fast/);
+    assert.equal(app.session.attempts, 0);
+    input('right');
+    assert.equal(element(id).classList.contains('hidden'), true);
+    assert.equal(app.practiceFeedback().textContent, 'Right!');
+    element(id).classList.remove('hidden');
+    app.show('settings');
+    assert.equal(element(id).classList.contains('hidden'), true);
+  }
+  const h = appHarness(); lessonFixture(h);
+  h.element('lesson-quiet-tip').classList.remove('hidden');
+  h.app.preparePracticeCard();
+  assert.equal(h.element('lesson-quiet-tip').classList.contains('hidden'), true);
+});
+
+test('sound skip cancels calibration or listening and opens the same guided tuner route', async () => {
+  for (const route of ['lesson','intro','home']) for (const phase of ['calibration','listening']) {
+    const h = appHarness({noiseFloor:'0.019'});
+    const {app,context,element} = h;
+    app.chooseProfile('Bogdan');
+    app.calibrated = phase === 'listening';
+    app.setupAudio = async () => {
+      app.analyser = {getFloatTimeDomainData(buffer) {buffer.fill(0.004);}};
+      app.buffer = new Float32Array(4096);
+      return true;
+    };
+    let writes = 0;
+    const save = context.localStorage.setItem;
+    context.localStorage.setItem = (key,value) => { if (key === 'noiseFloor') writes++; save(key,value); };
+    let entered;
+    const ready = new Promise(resolve => {entered = resolve;});
+    const calibrate = app.calibrateNoiseFloor.bind(app);
+    app.calibrateNoiseFloor = token => { const pending = calibrate(token); entered(); return pending; };
+    const listen = app.runSoundCheck.bind(app);
+    app.runSoundCheck = () => {listen(); entered();};
+    const pending = app.beginDailySession(route);
+    await ready;
+    assert.equal(app.currentScreen, 'sound');
+    const stale = h.pendingFrame;
+    assert.equal(typeof stale, 'function');
+    element('sound-skip').onclick();
+    assert.equal(app.currentScreen, 'tuner');
+    assert.equal(app.tunerGuided, true);
+    assert.equal(app.routeAfterTuner, route);
+    const tunerFrame = h.pendingFrame;
+    stale();
+    await pending;
+    assert.equal(app.currentScreen, 'tuner');
+    assert.equal(h.pendingFrame, tunerFrame);
+    assert.equal(app.pitchDetector.noiseFloor, 0.019);
+    assert.equal(app.pitchDetector.calibrating, false);
+    assert.equal(app.pitchDetector.calibrationRms.length, 0);
+    assert.equal(context.localStorage.getItem('noiseFloor'), '0.019');
+    assert.equal(context.localStorage.getItem('soundCheckDone'), null);
+    assert.equal(writes, 0);
+    app.finishSetupRoute = () => {};
+    element('tuner-skip').onclick();
+    assert.equal(context.localStorage.getItem('soundCheckDone'), 'true');
+  }
+});
+
+test('sound skip still works after a cancelled microphone setup leaves the sound screen', async () => {
+  const h = appHarness();
+  let grant, entered;
+  const ready = new Promise(resolve => {entered = resolve;});
+  h.app.setupAudio = () => new Promise(resolve => {grant = resolve; entered();});
+  const pending = h.app.beginDailySession('lesson');
+  await ready;
+  h.app.show('home');
+  grant(true);
+  await pending;
+  h.app.show('sound');
+  h.element('sound-skip').onclick();
+  assert.equal(h.app.currentScreen, 'tuner');
+  assert.equal(h.app.tunerGuided, true);
+  assert.equal(h.app.routeAfterTuner, 'lesson');
+});
+test('sound skip ignores a stale successful calibration completion', async () => {
+  const h = appHarness();
+  let complete, entered, checks = 0;
+  const ready = new Promise(resolve => {entered = resolve;});
+  h.app.setupAudio = async () => true;
+  h.app.calibrateNoiseFloor = () => new Promise(resolve => {complete = resolve; entered();});
+  h.app.runSoundCheck = () => {checks++;};
+  const pending = h.app.beginDailySession('intro');
+  await ready;
+  h.element('sound-skip').onclick();
+  complete(true);
+  await pending;
+  assert.equal(h.app.currentScreen, 'tuner');
+  assert.equal(h.app.routeAfterTuner, 'intro');
+  assert.equal(checks, 0);
+  assert.equal(h.context.localStorage.getItem('noiseFloor'), null);
+});
+
+test('sound skip during microphone setup waits for permission and preserves failure behavior', async () => {
+  for (const granted of [true,false]) {
+    const h = appHarness();
+    h.app.chooseProfile('Bogdan');
+    let complete;
+    h.app.setupAudio = () => new Promise(resolve => {complete = resolve;});
+    const pending = h.app.beginDailySession('home');
+    h.element('sound-skip').onclick();
+    assert.equal(h.app.currentScreen, 'sound');
+    complete(granted);
+    await pending;
+    assert.equal(h.app.currentScreen, granted ? 'tuner' : 'home');
+    assert.equal(h.app.routeAfterTuner, 'home');
+    assert.equal(h.context.localStorage.getItem('soundCheckDone'), null);
+    assert.equal(h.context.localStorage.getItem('noiseFloor'), null);
+  }
 });
 
 async function runTests() {

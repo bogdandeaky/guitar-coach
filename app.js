@@ -50,7 +50,7 @@ class GuitarApp {
       'nav-tuner', 'open-settings', 'redo-sound-check', 'pause-practice', 'home-button', 'profile-chip', 'onboarding-content', 'onboarding-next',
       'home-greeting', 'next-lesson-card', 'start-session', 'open-tuner',
       'open-songs', 'open-my-songs', 'switch-profile', 'songs-status',
-      'level-fill', 'level-message', 'mic-settings', 'sound-continue',
+      'level-fill', 'level-message', 'mic-settings', 'sound-continue', 'sound-skip',
       'tuner-step', 'tuner-target', 'tuner-note', 'tuner-needle', 'tuner-cents',
       'tuner-string', 'tuner-message', 'tuner-continue', 'tuner-skip',
       'lesson-step', 'lesson-title', 'lesson-tip', 'count-in', 'note-instruction',
@@ -92,6 +92,7 @@ class GuitarApp {
     this.el['open-my-songs'].addEventListener('click', () => this.show('my-songs'));
     this.el['switch-profile'].addEventListener('click', () => this.show('profile'));
     this.el['sound-continue'].addEventListener('click', () => this.openGuidedTuner(this.routeAfterTuner));
+    this.el['sound-skip'].addEventListener('click', () => this.skipSoundCheck());
     this.el['tuner-continue'].addEventListener('click', () => this.finishTuner());
     this.el['tuner-skip'].addEventListener('click', () => this.finishTuner(true));
     this.el['retry-note'].addEventListener('click', () => this.retryCard());
@@ -153,6 +154,7 @@ class GuitarApp {
   operationActive(token) { return token === this.navigationToken; }
 
   show(name) {
+    this.hideQuietNoteTips();
     this.beginOperation();
     if (this.currentScreen === 'onboarding' && name !== 'onboarding' &&
         FIRST_RUN[this.firstRunStep]?.type === 'win' && this.practiceKind === 'intro') {
@@ -200,7 +202,7 @@ class GuitarApp {
       <p>${lesson.skill}</p>
       <p>One short demonstration, then guided cards at your pace.</p>`;
     const unlocked = this.progress.songsUnlocked();
-    this.el['songs-status'].textContent = unlocked ? 'Melodies + easy riffs' : 'Unlock after starter step 4';
+    this.el['songs-status'].textContent = unlocked ? 'Melodies + easy riffs' : 'Unlock after lesson 1';
     this.el['open-songs'].disabled = !unlocked;
   }
 
@@ -238,7 +240,8 @@ class GuitarApp {
           <div><small>FRET</small><strong id="first-fret">0</strong></div>
           <div><small>NOTE</small><strong id="first-note">E (mi)</strong></div>
         </div><p class="thin-e-reminder">String 1 = thin high E (mi)</p>
-        <div id="first-feedback" class="feedback neutral">Pick once when ready</div></article>`;
+        <div id="first-feedback" class="feedback neutral">Pick once when ready</div>
+        <p id="first-quiet-tip" class="quiet-note-tip hidden"></p></article>`;
       this.el['onboarding-next'].classList.add('hidden');
       this.pitchDetector.resetTracking();
       this.runFirstPhrase();
@@ -408,6 +411,7 @@ class GuitarApp {
   }
 
   runFirstPhrase() {
+    if (this.firstRunStep === FIRST_RUN.findIndex(step => step.type === 'phrase')) this.quietTip = new QuietNoteTip();
     this.startPractice(FIRST_RUN[this.firstRunStep].notes, 'intro');
   }
 
@@ -421,11 +425,16 @@ class GuitarApp {
       return;
     }
     this.soundPassed = false;
+    this.soundSkipRequested = false;
+    this.soundSetupPending = true;
     this.show('sound');
     const operation = this.beginOperation();
+    this.soundSetupOperation = operation;
     const ok = await this.setupAudio(operation);
     if (!this.operationActive(operation)) return;
+    this.soundSetupPending = false;
     if (!ok) return this.goHome();
+    if (this.soundSkipRequested) return this.openGuidedTuner(this.routeAfterTuner);
     this.el['mic-settings'].textContent = this.formatMicSettings();
     this.el['level-message'].textContent = 'Stay quiet for a quick room check…';
     this.el['sound-continue'].disabled = true;
@@ -434,6 +443,12 @@ class GuitarApp {
       if (calibrated === false || !this.operationActive(operation)) return;
     }
     this.runSoundCheck();
+  }
+
+  skipSoundCheck() {
+    if (this.currentScreen !== 'sound') return;
+    if (this.soundSetupPending && this.operationActive(this.soundSetupOperation)) { this.soundSkipRequested = true; return; }
+    this.openGuidedTuner(this.routeAfterTuner);
   }
 
   runSoundCheck() {
@@ -526,6 +541,7 @@ class GuitarApp {
   }
 
   startLesson() {
+    this.quietTip = new QuietNoteTip();
     this.lesson = this.selectedLesson || this.progress.nextLesson();
     this.selectedLesson = null;
     this.exerciseIndex = 0;
@@ -655,6 +671,7 @@ class GuitarApp {
     if (!this.operationActive(operation)) return;
     if (!ok) return;
     this.song = song;
+    this.quietTip = new QuietNoteTip();
     this.el.tempo.value = song.bpm || 70;
     this.el['tempo-output'].textContent = `${this.el.tempo.value} BPM`;
     this.show('play');
@@ -699,6 +716,7 @@ class GuitarApp {
   }
 
   resetSongPhrase() {
+    this.hideQuietNoteTips();
     this.stopLoop();
     this.playing = false;
     this.songIndex = this.songRange[0];
@@ -1020,6 +1038,7 @@ class GuitarApp {
   }
 
   preparePracticeCard(resetTracking = true) {
+    this.hideQuietNoteTips();
     this.stopLoop();
     this.attempt = new NoteAttempt();
     if (resetTracking) this.pitchDetector.resetTracking();
@@ -1049,6 +1068,12 @@ class GuitarApp {
     this.runPracticeInput();
   }
 
+  hideQuietNoteTips() {
+    for (const id of ['lesson-quiet-tip', 'play-quiet-tip', 'first-quiet-tip']) {
+      document.getElementById(id)?.classList.add('hidden');
+    }
+  }
+
   practiceFeedback() {
     return this.practiceKind === 'intro' ? document.getElementById('first-feedback') : this.el[this.practiceKind === 'song' ? 'play-feedback' : 'lesson-feedback'];
   }
@@ -1065,6 +1090,14 @@ class GuitarApp {
       const result = this.attempt.update(this.readAnalysis(), performance.now(), this.noteDetector.frequencyFor(info.note, info.octave), this.pitchDetector.noiseFloor);
       if (result) {
         const right = result.type === 'right';
+        const showQuietTip = (this.quietTip ||= new QuietNoteTip()).update(result);
+        if (right) this.hideQuietNoteTips();
+        if (showQuietTip) {
+          const id = this.practiceKind === 'intro' ? 'first-quiet-tip' : this.practiceKind === 'song' ? 'play-quiet-tip' : 'lesson-quiet-tip';
+          const hint = document.getElementById(id);
+          hint.textContent = 'Notes sound quiet. Move the phone a little closer to the amp or turn the volume up a bit.';
+          hint.classList.remove('hidden');
+        }
         if (right || result.type === 'wrong') this.session.record(right);
         if (right && this.practiceKind === 'song') { this.songResults[this.songIndex] = 'hit'; this.renderSongProgress(); }
         const heard = result.frequency ? this.displayPitch(result.frequency) : 'unclear sound';
