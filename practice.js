@@ -94,4 +94,20 @@ class PracticeSession {
 }
 const stringLabel = number => `String ${number} (${({1:'thin high E',2:'B',3:'G',4:'D',5:'A',6:'thick low E'})[number]})`;
 const noteLabel = note => `${note} (${({C:'do',D:'re',E:'mi',F:'fa',G:'sol',A:'la',B:'si'})[note[0]]}${note.slice(1)})`;
-if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, QuietNoteTip, QUIET_NOTE_PEAK, PracticeSession, stringLabel, noteLabel };
+
+/** Start time and frequency of each preview note. Duration defaults to one beat. */
+function previewSchedule(notes, bpm) {
+  const detector = new NoteDetector();
+  const secondsPerBeat = 60 / bpm;
+  let start = 0;
+  return notes.map(note => {
+    const beats = Number(note.duration) > 0 ? Number(note.duration) : 1;
+    const placed = detector.noteAt(note.string, note.fret);
+    const duration = beats * secondsPerBeat;
+    const event = { frequency: detector.frequencyFor(placed.note, placed.octave), start, duration };
+    start += duration;
+    return event;
+  });
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { SteadyPitch, NoteAttempt, QuietNoteTip, QUIET_NOTE_PEAK, PracticeSession, stringLabel, noteLabel, previewSchedule };

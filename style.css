@@ -86,6 +86,7 @@ p { line-height: 1.55; }
 .feedback.error { background: rgba(255,129,120,.13); color: var(--red); }
 .feedback.warning { background: rgba(255,201,99,.13); color: var(--amber); }
 .lesson-actions, .play-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#hear-lesson, #hear-song { grid-column: 1 / -1; }
 .count-in { position: fixed; z-index: 5; inset: 0; display: grid; place-items: center; background: rgba(5,15,12,.87); color: var(--green); font-size: 110px; font-weight: 950; }
 .stack-list { display: grid; gap: 12px; margin: 24px 0; }
 .song-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--ink); text-align: left; }

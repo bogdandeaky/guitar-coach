@@ -55,10 +55,10 @@ class GuitarApp {
       'tuner-string', 'tuner-message', 'tuner-continue', 'tuner-skip',
       'lesson-step', 'lesson-title', 'lesson-tip', 'count-in', 'note-instruction',
       'card-string', 'card-fret', 'card-finger', 'mini-fretboard',
-      'lesson-feedback', 'retry-note', 'skip-note', 'built-in-song-list',
+      'lesson-feedback', 'hear-lesson', 'retry-note', 'skip-note', 'built-in-song-list',
       'play-title', 'song-part', 'song-progress-bar', 'result-whole-song', 'play-progress', 'play-count-in', 'rhythm-track',
       'play-string', 'play-fret', 'play-note', 'play-duration', 'play-feedback', 'tempo',
-      'tempo-output', 'phrase-loop', 'play-toggle', 'play-retry',
+      'tempo-output', 'phrase-loop', 'hear-song', 'play-toggle', 'play-retry',
       'custom-song-list', 'show-import', 'import-form', 'import-title',
       'import-tab', 'import-error', 'achievement-title', 'achievement-body',
       'next-session', 'achievement-home', 'resume-overlay', 'resume-button'
@@ -95,6 +95,8 @@ class GuitarApp {
     this.el['sound-skip'].addEventListener('click', () => this.skipSoundCheck());
     this.el['tuner-continue'].addEventListener('click', () => this.finishTuner());
     this.el['tuner-skip'].addEventListener('click', () => this.finishTuner(true));
+    this.el['hear-lesson'].addEventListener('click', () => this.hearItFirst());
+    this.el['hear-song'].addEventListener('click', () => this.hearItFirst());
     this.el['retry-note'].addEventListener('click', () => this.retryCard());
     this.el['skip-note'].addEventListener('click', () => this.advanceLessonCard());
     this.el['tempo'].addEventListener('input', () => {
@@ -794,6 +796,7 @@ class GuitarApp {
       }
       else this.scheduleSongAdvance();
     } else {
+      this.stopLoop();
       this.el['play-toggle'].disabled = true;
       const screen = this.currentScreen;
       const completed = await this.countIn(this.el['play-count-in'], Number(this.el.tempo.value));
@@ -849,6 +852,118 @@ class GuitarApp {
     oscillator.stop(this.audioContext.currentTime + 0.05);
   }
 
+  previewNotes() {
+    if (this.currentScreen === 'lesson' && this.session?.cards?.length) return this.session.cards;
+    if (this.currentScreen === 'play' && this.song?.notes?.length) {
+      return this.song.notes.slice(this.songRange[0], this.songRange[1]);
+    }
+    return [];
+  }
+
+  hearItFirst() {
+    const notes = this.previewNotes();
+    if (!notes.length) return;
+    if (!this.audioContext) {
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (!Context) return;
+      this.audioContext = new Context();
+    }
+    const bpm = this.currentScreen === 'play' ? Number(this.el.tempo.value) : 70;
+    if (!Number.isFinite(bpm) || bpm <= 0) return;
+    const button = this.el[this.currentScreen === 'play' ? 'hear-song' : 'hear-lesson'];
+    this.stopLoop();
+    if (this.currentScreen === 'play' && !this.session) {
+      this.playing = false;
+      this.el['play-toggle'].disabled = false;
+      this.el['play-toggle'].textContent = 'Play';
+    }
+    this.previewButton = button;
+    button.textContent = 'Playing…';
+    const generation = this.countInGeneration;
+    const begin = () => {
+      if (generation !== this.countInGeneration) return;
+      this.schedulePreview(notes, bpm, generation);
+    };
+    if (this.audioContext.state === 'suspended') {
+      const resumed = this.audioContext.resume?.();
+      if (resumed && typeof resumed.then === 'function') {
+        resumed.then(begin, () => {
+          if (generation !== this.countInGeneration) return;
+          this.restorePreviewButton();
+          this.finishPreview();
+        });
+        return;
+      }
+    }
+    begin();
+  }
+
+  schedulePreview(notes, bpm, generation) {
+    if (generation !== this.countInGeneration) return;
+    const schedule = previewSchedule(notes, bpm);
+    const context = this.audioContext;
+    const t0 = Number.isFinite(context.currentTime) ? context.currentTime : 0;
+    this.previewVoices = schedule.map(event => this.playPreviewNote(event, t0));
+    const last = schedule[schedule.length - 1];
+    this.previewTimer = setTimeout(() => {
+      if (generation !== this.countInGeneration) return;
+      this.previewTimer = null;
+      this.releasePreviewVoices();
+      this.restorePreviewButton();
+      this.finishPreview();
+    }, (last.start + last.duration) * 1000 + 200);
+  }
+
+  playPreviewNote(event, t0) {
+    const context = this.audioContext;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const when = t0 + event.start;
+    const attack = Math.min(0.03, event.duration * 0.25);
+    oscillator.type = 'triangle';
+    oscillator.frequency.value = event.frequency;
+    if (typeof oscillator.frequency.setValueAtTime === 'function') {
+      oscillator.frequency.setValueAtTime(event.frequency, when);
+    }
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(0.15, when + attack);
+    gain.gain.exponentialRampToValueAtTime(0.001, when + event.duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(when);
+    oscillator.stop(when + event.duration);
+    return { oscillator, gain };
+  }
+
+  releasePreviewVoices() {
+    const now = Number.isFinite(this.audioContext?.currentTime) ? this.audioContext.currentTime : 0;
+    for (const voice of this.previewVoices || []) {
+      try {
+        const param = voice.gain.gain;
+        if (typeof param.cancelScheduledValues === 'function') param.cancelScheduledValues(now);
+        param.setValueAtTime(0.0001, now);
+      } catch { /* gain already closed */ }
+      try { voice.oscillator.stop(); } catch { /* already stopped */ }
+      try { voice.oscillator.disconnect(); } catch { /* already disconnected */ }
+      try { voice.gain.disconnect(); } catch { /* already disconnected */ }
+    }
+    this.previewVoices = [];
+  }
+
+  restorePreviewButton() {
+    if (!this.previewButton) return;
+    this.previewButton.textContent = 'Hear it first';
+    this.previewButton = null;
+  }
+
+  finishPreview() {
+    this.pitchDetector.resetTracking();
+    this.attempt = new NoteAttempt();
+    if (this.practicePaused || this.session?.state !== 'playing') return;
+    if (this.currentScreen === 'lesson') this.runPracticeInput();
+    else if (this.currentScreen === 'play' && this.playing) this.runPracticeInput();
+  }
+
   renderCustomSongs() {
     const list = this.el['custom-song-list'];
     list.innerHTML = this.customSongs.length ? '' : '<p class="lede">No imported songs yet.</p>';
@@ -886,6 +1001,10 @@ class GuitarApp {
     if (this.session) this.practiceFeedback()?.classList.remove('right-flash');
     clearTimeout(this.exerciseTransitionTimer);
     this.exerciseTransitionTimer = null;
+    clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+    this.releasePreviewVoices();
+    this.restorePreviewButton();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
   }
