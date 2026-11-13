@@ -13,6 +13,7 @@ class GuitarApp {
     this.wakeLock = null;
     this.currentScreen = 'onboarding';
     this.profile = localStorage.getItem('guitar-profile');
+    this.pedalShift = 0;
     this.progress = this.profile ? new LearningProgress(this.profile) : null;
     this.firstRunStep = 0;
     this.routeAfterTuner = 'home';
@@ -27,6 +28,7 @@ class GuitarApp {
     this.playing = false;
     this.customSongs = this.readJSON('guitar-custom-songs', []);
     this.cacheElements();
+    if (this.profile) this.loadPedalShift();
     this.bindEvents();
     this.bindPracticeEvents();
     this.bindVisibility();
@@ -47,7 +49,7 @@ class GuitarApp {
   cacheElements() {
     this.screens = [...document.querySelectorAll('.screen')];
     const ids = [
-      'nav-tuner', 'open-settings', 'redo-sound-check', 'pause-practice', 'home-button', 'profile-chip', 'onboarding-content', 'onboarding-next',
+      'nav-tuner', 'open-settings', 'redo-sound-check', 'pedal-shift', 'pause-practice', 'home-button', 'profile-chip', 'onboarding-content', 'onboarding-next',
       'home-greeting', 'next-lesson-card', 'start-session', 'open-tuner',
       'open-songs', 'open-my-songs', 'switch-profile', 'songs-status',
       'level-fill', 'level-message', 'mic-settings', 'sound-continue', 'sound-skip',
@@ -56,7 +58,7 @@ class GuitarApp {
       'lesson-step', 'lesson-title', 'lesson-tip', 'count-in', 'note-instruction',
       'card-string', 'card-fret', 'card-finger', 'mini-fretboard',
       'lesson-feedback', 'hear-lesson', 'retry-note', 'skip-note', 'built-in-song-list',
-      'play-title', 'song-part', 'song-progress-bar', 'result-whole-song', 'play-progress', 'play-count-in', 'rhythm-track',
+      'play-title', 'song-part', 'play-pedal-hint', 'song-progress-bar', 'result-whole-song', 'play-progress', 'play-count-in', 'rhythm-track',
       'play-string', 'play-fret', 'play-note', 'play-duration', 'play-feedback', 'tempo',
       'tempo-output', 'phrase-loop', 'hear-song', 'play-toggle', 'play-retry',
       'custom-song-list', 'show-import', 'import-form', 'import-title',
@@ -75,6 +77,7 @@ class GuitarApp {
       this.calibrated = false;
       return this.beginDailySession('home');
     };
+    this.el['pedal-shift'].addEventListener('change', () => this.setPedalShift(Number(this.el['pedal-shift'].value)));
     this.el['pause-practice'].onclick = () => {
       this.practicePaused = !this.practicePaused;
       this.el['pause-practice'].textContent = this.practicePaused ? 'Resume' : 'Pause';
@@ -147,6 +150,43 @@ class GuitarApp {
     }
   }
 
+  pedalShiftKey(profile = this.profile) {
+    return `guitar-pedal-shift-${profile}`;
+  }
+
+  loadPedalShift() {
+    const stored = localStorage.getItem(this.pedalShiftKey());
+    const value = stored === null || stored.trim() === '' ? 0 : Number(stored);
+    const allowed = [0, -1, -2, -3];
+    this.pedalShift = allowed.includes(value) ? value : 0;
+    if (this.el['pedal-shift']) this.el['pedal-shift'].value = String(this.pedalShift);
+    this.updatePedalShiftHint();
+    return this.pedalShift;
+  }
+
+  setPedalShift(shift) {
+    const allowed = [0, -1, -2, -3];
+    this.pedalShift = allowed.includes(shift) ? shift : 0;
+    if (this.profile) localStorage.setItem(this.pedalShiftKey(), String(this.pedalShift));
+    if (this.el['pedal-shift']) this.el['pedal-shift'].value = String(this.pedalShift);
+    this.updatePedalShiftHint();
+  }
+
+  scoringExpectedFrequency(note, octave) {
+    const base = this.noteDetector.frequencyFor(note, octave);
+    if (!base || !this.pedalShift) return base;
+    return base * Math.pow(2, this.pedalShift / 12);
+  }
+
+  updatePedalShiftHint() {
+    const hint = this.el['play-pedal-hint'];
+    if (!hint) return;
+    const suggested = this.song?.suggestedShift;
+    const show = Number.isFinite(suggested) && suggested !== this.pedalShift;
+    hint.textContent = show ? 'Use your P95 sound' : '';
+    hint.classList.toggle('hidden', !show);
+  }
+
   beginOperation() {
     this.navigationToken++;
     this.stopLoop();
@@ -169,6 +209,7 @@ class GuitarApp {
     this.el['home-button'].classList.toggle('hidden', ['profile', 'home'].includes(name) || (name === 'onboarding' && !this.profile));
     this.el['profile-chip'].classList.toggle('hidden', !this.profile || ['onboarding', 'profile'].includes(name));
     if (this.profile) this.el['profile-chip'].textContent = this.profile;
+    if (name === 'settings' && this.profile) this.loadPedalShift();
     if (this.needsWakeLock()) this.requestWakeLock();
     else {
       this.releaseWakeLock();
@@ -188,6 +229,7 @@ class GuitarApp {
     this.profile = profile;
     localStorage.setItem('guitar-profile', profile);
     this.progress = new LearningProgress(profile);
+    this.loadPedalShift();
     this.renderBuiltInSongs();
     this.goHome();
   }
@@ -680,6 +722,7 @@ class GuitarApp {
     this.buildPhraseOptions();
     this.el['phrase-loop'].value = 'all';
     this.setSongRange();
+    this.updatePedalShiftHint();
   }
 
   buildPhraseOptions() {
@@ -729,6 +772,7 @@ class GuitarApp {
     document.getElementById('song-next').disabled = true;
     this.renderSongTrack();
     this.renderSongCard();
+    this.updatePedalShiftHint();
   }
 
   renderSongTrack() {
@@ -1210,7 +1254,7 @@ class GuitarApp {
       if (this.currentScreen !== screen || this.session?.state !== 'playing' || !this.analyser) return;
       const target = this.session.cards[this.session.index];
       const info = this.noteDetector.noteAt(target.string, target.fret);
-      const result = this.attempt.update(this.readAnalysis(), performance.now(), this.noteDetector.frequencyFor(info.note, info.octave), this.pitchDetector.noiseFloor);
+      const result = this.attempt.update(this.readAnalysis(), performance.now(), this.scoringExpectedFrequency(info.note, info.octave), this.pitchDetector.noiseFloor);
       if (result) {
         const right = result.type === 'right';
         const showQuietTip = (this.quietTip ||= new QuietNoteTip()).update(result);

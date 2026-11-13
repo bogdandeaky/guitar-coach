@@ -53,7 +53,17 @@
       </div>
     </section>
 
-    <section id="settings-screen" class="screen hidden"><h1>Settings</h1><button id="redo-sound-check" class="secondary-button">Redo sound check</button></section>
+    <section id="settings-screen" class="screen hidden"><h1>Settings</h1>
+      <label class="range-row">Pedal pitch shift
+        <select id="pedal-shift">
+          <option value="0">Off (no pedal shift)</option>
+          <option value="-1">Pedal lowers notes by 1 (half step)</option>
+          <option value="-2">Pedal lowers notes by 2 (P95 Symbolic / D standard)</option>
+          <option value="-3">Pedal lowers notes by 3</option>
+        </select>
+      </label>
+      <button id="redo-sound-check" class="secondary-button">Redo sound check</button>
+    </section>
 
     <section id="sound-screen" class="screen hidden">
       <p class="eyebrow">Step 1 of 3</p>
@@ -124,6 +134,7 @@
     <section id="play-screen" class="screen hidden">
       <div class="lesson-meta"><span id="play-title"></span><span id="play-progress"></span></div>
       <p id="song-part" class="status-line" aria-live="polite"></p>
+      <p id="play-pedal-hint" class="status-line hidden"></p>
       <progress id="song-progress-bar" value="0" max="1" aria-label="Notes completed in current part"></progress>
       <div id="play-count-in" class="count-in hidden"></div>
       <p class="track-legend">Each box: string · fret</p>

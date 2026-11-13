@@ -1935,6 +1935,121 @@ test('failed or cancelled AudioContext resume does not leave listening stuck', a
   }
 });
 
+const PEDAL_SHIFT_VALUES = [0, -1, -2, -3];
+
+function scoringFrequencyForShift(detector, string, fret, shift) {
+  const info = detector.noteAt(string, fret);
+  const base = detector.frequencyFor(info.note, info.octave);
+  return shift ? base * Math.pow(2, shift / 12) : base;
+}
+
+test('missing or invalid pedal shift loads as 0 and only writes the new storage key', () => {
+  const h = appHarness({'guitar-profile': 'Bogdan', 'guitar-pedal-shift-Bogdan': 'x'});
+  assert.equal(h.app.pedalShift, 0);
+  assert.equal(h.element('pedal-shift').value, '0');
+  const writes = new Map();
+  const original = h.context.localStorage.setItem;
+  h.context.localStorage.setItem = (key, value) => {
+    writes.set(key, value);
+    original(key, value);
+  };
+  h.app.show('settings');
+  h.app.setPedalShift(-2);
+  assert.equal(writes.size, 1);
+  assert.equal(writes.get('guitar-pedal-shift-Bogdan'), '-2');
+  assert.equal(h.context.localStorage.getItem('guitar-pedal-shift-Bogdan'), '-2');
+  assert.equal(h.context.localStorage.getItem('noiseFloor'), null);
+  assert.equal(h.context.localStorage.getItem('guitar-profile'), 'Bogdan');
+});
+
+test('pedal shift is stored per profile and reloads when switching players', () => {
+  const h = appHarness({'guitar-profile': 'Bogdan'});
+  h.app.setPedalShift(-2);
+  h.app.chooseProfile('Aron');
+  assert.equal(h.app.pedalShift, 0);
+  assert.equal(h.element('pedal-shift').value, '0');
+  h.app.setPedalShift(0);
+  h.app.chooseProfile('Bogdan');
+  assert.equal(h.app.pedalShift, -2);
+  assert.equal(h.element('pedal-shift').value, '-2');
+  h.context.localStorage.setItem('guitar-pedal-shift-Aron', '-1');
+  h.app.chooseProfile('Aron');
+  assert.equal(h.app.pedalShift, -1);
+});
+
+test('scoring accepts lowered pitches when pedal shift is set and rejects them when off', () => {
+  const detector = new NoteDetector();
+  const string = 1;
+  const fret = 3;
+  const written = detector.frequencyFor(detector.noteAt(string, fret).note, detector.noteAt(string, fret).octave);
+  const lowered = scoringFrequencyForShift(detector, string, fret, -2);
+  const attemptRight = new NoteAttempt();
+  let result;
+  for (let t = 0; t <= 360; t += 20) {
+    result = attemptRight.update({ frequency: lowered, clarity: 1, rms: 0.1, onset: t === 0 }, t, lowered) || result;
+  }
+  assert.equal(result.type, 'right');
+  const attemptShifted = new NoteAttempt();
+  result = null;
+  for (let t = 0; t <= 360; t += 20) {
+    result = attemptShifted.update({ frequency: lowered, clarity: 1, rms: 0.1, onset: t === 0 }, t, scoringFrequencyForShift(detector, string, fret, -2)) || result;
+  }
+  assert.equal(result.type, 'right');
+  const attemptWrittenOnShift = new NoteAttempt();
+  result = null;
+  for (let t = 0; t <= 360; t += 20) {
+    result = attemptWrittenOnShift.update({ frequency: written, clarity: 1, rms: 0.1, onset: t === 0 }, t, scoringFrequencyForShift(detector, string, fret, -2)) || result;
+  }
+  assert.ok(result && result.type === 'wrong');
+  const attemptWrittenOff = new NoteAttempt();
+  result = null;
+  for (let t = 0; t <= 360; t += 20) {
+    result = attemptWrittenOff.update({ frequency: written, clarity: 1, rms: 0.1, onset: t === 0 }, t, written) || result;
+  }
+  assert.equal(result.type, 'right');
+  const attemptLoweredOff = new NoteAttempt();
+  result = null;
+  for (let t = 0; t <= 360; t += 20) {
+    result = attemptLoweredOff.update({ frequency: lowered, clarity: 1, rms: 0.1, onset: t === 0 }, t, written) || result;
+  }
+  assert.ok(result && result.type === 'wrong');
+  const h = appHarness({'guitar-profile': 'QA', 'guitar-pedal-shift-QA': '-2'});
+  h.app.loadPedalShift();
+  h.app.analyser = {};
+  h.app.setupAudio = async () => true;
+  const info = h.app.noteDetector.noteAt(string, fret);
+  assert.equal(h.app.scoringExpectedFrequency(info.note, info.octave), lowered);
+});
+
+test('pedal shift does not change noteAt or preview schedule written pitches', () => {
+  const detector = new NoteDetector();
+  const note = { string: 2, fret: 5 };
+  const before = detector.noteAt(note.string, note.fret);
+  const h = appHarness({'guitar-profile': 'Bogdan'});
+  for (const shift of PEDAL_SHIFT_VALUES) {
+    h.app.setPedalShift(shift);
+    assert.deepEqual(detector.noteAt(note.string, note.fret), before);
+    const schedule = previewSchedule([note], 70);
+    assert.equal(schedule[0].frequency, detector.frequencyFor(before.note, before.octave));
+  }
+});
+
+test('suggestedShift shows P95 hint when pedal shift mismatches and hides when it matches', async () => {
+  const song = { title: 'Fixture', bpm: 70, suggestedShift: -2, notes: [{ string: 1, fret: 0, note: 'E', octave: 4, duration: 1 }] };
+  const h = appHarness({'guitar-profile': 'QA'});
+  h.app.setupAudio = async () => { h.app.analyser = {}; return true; };
+  h.app.setPedalShift(0);
+  await h.app.openSong(song);
+  const hint = h.element('play-pedal-hint');
+  assert.equal(hint.classList.contains('hidden'), false);
+  assert.equal(hint.textContent, 'Use your P95 sound');
+  h.app.setPedalShift(-2);
+  assert.equal(hint.classList.contains('hidden'), true);
+  assert.equal(hint.textContent, '');
+  await h.app.openSong({ title: 'Plain', bpm: 70, notes: song.notes });
+  assert.equal(hint.classList.contains('hidden'), true);
+});
+
 test('header groups practice tools and sets narrow-phone tap targets in CSS', () => {
   const fs = require('node:fs');
   const html = fs.readFileSync('index.html', 'utf8');
