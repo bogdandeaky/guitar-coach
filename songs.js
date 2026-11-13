@@ -1388,6 +1388,51 @@ const BUILTIN_SONGS = [
       { string: 6, fret: 4, note: 'G#', octave: 2, duration: 1.0, phraseEnd: true }
     ]
   },
+  {
+    id: 'enter-sandman-main-bogdan',
+    title: 'Enter Sandman (Metallica) - main riff',
+    difficulty: 'intermediate',
+    bpm: 70,
+    owner: 'Bogdan',
+    group: "Bogdan's riffs",
+    youtube: 'https://www.youtube.com/watch?v=aUGc0-Poun8',
+    description: 'Based on the Marty Music lesson (clean intro 1:14, signature riff 8:56). Cross-checked with a standard-tuning transcription. Frets go to 7, so this is medium. Palm mute the open E chugs.',
+    notes: [
+      // Part 1: clean intro (two cycles). Marty Music 1:14 - open E, A 7, D 5, low E 6, low E 5, A 7, open E.
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 4, fret: 5, note: 'G',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 6, note: 'A#', octave: 2, duration: 0.5 },
+      { string: 6, fret: 5, note: 'A',  octave: 2, duration: 1.0 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 4, fret: 5, note: 'G',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 6, note: 'A#', octave: 2, duration: 0.5 },
+      { string: 6, fret: 5, note: 'A',  octave: 2, duration: 1.0 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5, phraseEnd: true },
+
+      // Part 2: signature / main heavy riff (two cycles). Marty Music 8:56 - two open E chugs, A 7, low E 6, low E 5, two open E chugs, F.
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 6, note: 'A#', octave: 2, duration: 0.5 },
+      { string: 6, fret: 5, note: 'A',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 1, note: 'F',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 5, fret: 7, note: 'E',  octave: 3, duration: 0.5 },
+      { string: 6, fret: 6, note: 'A#', octave: 2, duration: 0.5 },
+      { string: 6, fret: 5, note: 'A',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 0, note: 'E',  octave: 2, duration: 0.5 },
+      { string: 6, fret: 1, note: 'F',  octave: 2, duration: 0.5, phraseEnd: true }
+    ]
+  },
 ];
 
 // Export for use in both browser and Node.js
