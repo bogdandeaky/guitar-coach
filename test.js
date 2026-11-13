@@ -1915,6 +1915,26 @@ test('failed or cancelled AudioContext resume does not leave listening stuck', a
   }
 });
 
+test('header groups practice tools and sets narrow-phone tap targets in CSS', () => {
+  const fs = require('node:fs');
+  const html = fs.readFileSync('index.html', 'utf8');
+  const css = fs.readFileSync('style.css', 'utf8');
+  assert.match(html, /class="topbar-tools"[\s\S]*id="pause-practice"[\s\S]*id="nav-tuner"[\s\S]*id="open-settings"/);
+  assert.match(css, /\.topbar-tools/);
+  assert.match(css, /@media \(max-width: 420px\)[\s\S]*\.topbar \.text-button \{[^}]*min-height: 48px/);
+  assert.match(css, /@media \(orientation: landscape\) and \(max-height: 600px\)[\s\S]*\.topbar \{[^}]*height: 56px/);
+  const captionBaseEnd = Math.max(
+    css.indexOf('.string-number { position: absolute'),
+    css.indexOf('.fretboard-caption { margin: 6px 0 0 -18px'),
+    css.indexOf('.note-octave { font-size: 12px; font-weight: normal'),
+  );
+  assert.ok(captionBaseEnd >= 0, 'base fretboard caption rules missing');
+  const cssAfterCaptionBases = css.slice(captionBaseEnd);
+  assert.match(cssAfterCaptionBases, /@media \(max-width: 420px\)[\s\S]*\.string-number \{[^}]*font-size: 14px/);
+  assert.match(cssAfterCaptionBases, /@media \(max-width: 420px\)[\s\S]*\.fretboard-caption \{[^}]*font-size: 14px/);
+  assert.match(cssAfterCaptionBases, /@media \(max-width: 420px\)[\s\S]*\.note-octave \{[^}]*font-size: 14px/);
+});
+
 async function runTests() {
 let failures = 0;
 for (const { name, fn } of tests) {
