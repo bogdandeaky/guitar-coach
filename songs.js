@@ -1433,6 +1433,46 @@ const BUILTIN_SONGS = [
       { string: 6, fret: 1, note: 'F',  octave: 2, duration: 0.5, phraseEnd: true }
     ]
   },
+  {
+    id: 'paranoid-main-bogdan',
+    title: 'Paranoid (Black Sabbath) - main riff',
+    difficulty: 'harder',
+    bpm: 70,
+    owner: 'Bogdan',
+    group: "Bogdan's riffs",
+    youtube: 'https://www.youtube.com/watch?v=jwca7tQZnkQ',
+    description: 'Based on the Marty Music lesson (main riff 0:51). Cross-checked with a standard-tuning transcription. Played at the 12th fret, so this is harder, not easy. Hammer 12 to 14.',
+    notes: [
+      // Part 1
+      { string: 6, fret: 12, note: 'E', octave: 3, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 1.0 },
+      { string: 6, fret: 12, note: 'E', octave: 3, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 1.0 },
+      { string: 6, fret: 12, note: 'E', octave: 3, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 1.0, phraseEnd: true },
+
+      // Part 2
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5 },
+      { string: 4, fret: 12, note: 'D', octave: 4, duration: 0.5 },
+      { string: 4, fret: 14, note: 'E', octave: 4, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5 },
+      { string: 4, fret: 12, note: 'D', octave: 4, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5 },
+      { string: 4, fret: 12, note: 'D', octave: 4, duration: 0.5 },
+      { string: 4, fret: 14, note: 'E', octave: 4, duration: 0.5 },
+      { string: 5, fret: 12, note: 'A', octave: 3, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5 },
+      { string: 4, fret: 12, note: 'D', octave: 4, duration: 0.5 },
+      { string: 5, fret: 14, note: 'B', octave: 3, duration: 0.5, phraseEnd: true }
+    ]
+  },
 ];
 
 // Export for use in both browser and Node.js

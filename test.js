@@ -1122,6 +1122,26 @@ test('Enter Sandman riff has the verified intermediate notes and two explicit pa
   assert.deepEqual(element('phrase-loop').children.map(option => option.textContent), ['Part 1 of 2', 'Part 2 of 2']);
 });
 
+test('Paranoid riff has the verified harder notes and two explicit parts', () => {
+  const song = BUILTIN_SONGS.find(song => song.id === 'paranoid-main-bogdan');
+  assert.ok(song);
+  assert.equal(song.notes.length, 25);
+  assert.equal(Math.max(...song.notes.map(note => note.fret)), 14);
+  assert.equal(song.difficulty, 'harder');
+  assert.equal(song.bpm, 70);
+  assert.equal(song.owner, 'Bogdan');
+  assert.equal(song.group, "Bogdan's riffs");
+  assert.equal(song.youtube, 'https://www.youtube.com/watch?v=jwca7tQZnkQ');
+  assert.match(song.description, /0:51/);
+  assert.equal(song.notes.filter(note => note.phraseEnd).length, 2);
+  const {app, element} = appHarness();
+  assert.equal(JSON.stringify(app.phraseRanges(song.notes)), '[[0,9],[9,25]]');
+  app.song = song;
+  app.buildPhraseOptions();
+  assert.match(element('phrase-loop').innerHTML, /Whole song/);
+  assert.deepEqual(element('phrase-loop').children.map(option => option.textContent), ['Part 1 of 2', 'Part 2 of 2']);
+});
+
 test('owned riffs and their YouTube cards are visible only for the matching profile', () => {
   const {app, element, context} = appHarness({'guitar-profile':'Bogdan'});
   const list = element('built-in-song-list');
