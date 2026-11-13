@@ -1481,6 +1481,79 @@ test('previewSchedule places noteAt frequencies on beat boundaries', () => {
   assert.ok(Math.abs((schedule[2].start - schedule[1].start) - 2 * beat) < 1e-9);
 });
 
+test('hear it first during auto-advance re-arms advance and listening', async () => {
+  {
+    const h = appHarness();
+    lessonFixture(h);
+    const { app, element } = h;
+    app.audioContext = fakeAudioContext(0);
+    app.session.record(true);
+    app.scheduleSongAdvance();
+    assert.equal(app.session.state, 'feedback');
+    assert.equal([...h.timers.values()][0].delay, 600);
+    assert.equal(h.pendingFrame, null);
+    element('hear-lesson').onclick();
+    assert.equal(h.timers.size, 1);
+    assert.equal(h.pendingFrame, null);
+    h.flushTimer();
+    assert.equal([...h.timers.values()][0].delay, 600);
+    h.flushTimer();
+    assert.equal(app.session.index, 1);
+    assert.equal(app.session.state, 'playing');
+    assert.equal(typeof h.pendingFrame, 'function');
+  }
+  {
+    const h = appHarness();
+    const { app, element } = h;
+    const notes = [
+      { string: 1, fret: 0, note: 'E', octave: 4, duration: 1 },
+      { string: 1, fret: 1, note: 'F', octave: 4, duration: 1 },
+      { string: 1, fret: 3, note: 'G', octave: 4, duration: 1 }
+    ];
+    app.setupAudio = async () => true;
+    app.analyser = {};
+    app.audioContext = fakeAudioContext(0);
+    await app.openSong({ title: 'QA', notes });
+    app.startPractice(app.song.notes.slice(...app.songRange), 'song');
+    app.session.record(true);
+    app.scheduleSongAdvance();
+    assert.equal(app.session.state, 'feedback');
+    assert.equal(app.playing, true);
+    element('hear-song').onclick();
+    assert.equal(h.pendingFrame, null);
+    h.flushTimer();
+    h.flushTimer();
+    assert.equal(app.session.index, 1);
+    assert.equal(app.session.state, 'playing');
+    assert.equal(app.playing, true);
+    assert.equal(typeof h.pendingFrame, 'function');
+  }
+});
+
+test('hear it first during exercise transition re-arms the next exercise', () => {
+  const h = appHarness();
+  lessonFixture(h, 2);
+  const { app, element } = h;
+  const lessonId = app.lesson.id;
+  app.audioContext = fakeAudioContext(0);
+  finishCards(h, 5);
+  assert.equal(app.exerciseTransition, true);
+  assert.equal(app.exerciseIndex, 0);
+  assert.equal(app.currentScreen, 'lesson');
+  assert.equal([...h.timers.values()][0].delay, 1000);
+  assert.ok(!app.progress.completed.includes(lessonId));
+  element('hear-lesson').onclick();
+  assert.equal(h.timers.size, 1);
+  h.flushTimer();
+  assert.equal([...h.timers.values()][0].delay, 1000);
+  h.flushTimer();
+  assert.equal(app.currentScreen, 'lesson');
+  assert.equal(app.exerciseIndex, 1);
+  assert.equal(app.session.index, 0);
+  assert.equal(app.exerciseTransition, false);
+  assert.ok(!app.progress.completed.includes(lessonId));
+});
+
 test('lesson hear it first stops scoring, then resumes a fresh attempt', () => {
   const h = appHarness();
   lessonFixture(h);

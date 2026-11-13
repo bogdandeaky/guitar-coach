@@ -959,9 +959,13 @@ class GuitarApp {
   finishPreview() {
     this.pitchDetector.resetTracking();
     this.attempt = new NoteAttempt();
-    if (this.practicePaused || this.session?.state !== 'playing') return;
-    if (this.currentScreen === 'lesson') this.runPracticeInput();
-    else if (this.currentScreen === 'play' && this.playing) this.runPracticeInput();
+    if (this.practicePaused || !this.session) return;
+    const activeLesson = this.currentScreen === 'lesson';
+    const activeSong = this.currentScreen === 'play' && this.playing;
+    if (!activeLesson && !activeSong) return;
+    if (this.exerciseTransition) this.practiceResult();
+    else if (['feedback', 'result'].includes(this.session.state)) this.scheduleSongAdvance();
+    else if (this.session.state === 'playing') this.runPracticeInput();
   }
 
   renderCustomSongs() {
